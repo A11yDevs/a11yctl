@@ -23,6 +23,22 @@ foreach ($bin in $binNames) {
     }
 }
 
+$runtimePath = Join-Path $scriptDir 'backend-scripts/powershell/a11yctl.runtime.ps1'
+if (Test-Path $runtimePath) {
+    Write-Host "Removendo $runtimePath"
+    Remove-Item $runtimePath -Force -ErrorAction SilentlyContinue
+}
+
+$runtimeDir = Join-Path $scriptDir 'backend-scripts/powershell'
+if (Test-Path $runtimeDir) {
+    Remove-Item $runtimeDir -Force -ErrorAction SilentlyContinue
+}
+
+$backendDir = Join-Path $scriptDir 'backend-scripts'
+if (Test-Path $backendDir) {
+    Remove-Item $backendDir -Force -ErrorAction SilentlyContinue
+}
+
 # Opcional: remover scripts de backend e estado
 $resp = Read-Host 'Deseja remover também o diretório de estado (~/.a11yctl)? [s/N]'
 if ($resp -match '^[sSyY]$') {

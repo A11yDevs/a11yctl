@@ -170,6 +170,10 @@ $installDir = Get-InstallDirectory
 $legacyInstallDir = Get-LegacyInstallDirectory
 $legacyStateDir = Get-LegacyStateDirectory
 Ensure-Directory -Path $installDir
+$backendScriptsDir = Join-Path $installDir 'backend-scripts'
+$backendPowershellDir = Join-Path $backendScriptsDir 'powershell'
+Ensure-Directory -Path $backendScriptsDir
+Ensure-Directory -Path $backendPowershellDir
 
 $baseRaw = "https://raw.githubusercontent.com/$INSTALL_OWNER/$INSTALL_REPO/$INSTALL_BRANCH"
 $files = @(
@@ -177,6 +181,7 @@ $files = @(
     @{ Name = 'a11yctl.cmd'; Url = "$baseRaw/a11yctl.cmd" },
     @{ Name = 'ea11ctl.ps1'; Url = "$baseRaw/ea11ctl.ps1" },
     @{ Name = 'ea11ctl.cmd'; Url = "$baseRaw/ea11ctl.cmd" },
+    @{ Name = 'backend-scripts/powershell/a11yctl.runtime.ps1'; Url = "$baseRaw/backend-scripts/powershell/a11yctl.runtime.ps1" },
     @{ Name = 'VERSION'; Url = "$baseRaw/VERSION" }
 )
 
@@ -203,6 +208,8 @@ else {
 
 foreach ($file in $files) {
     $dest = Join-Path $installDir $file.Name
+    $destDir = Split-Path -Path $dest -Parent
+    Ensure-Directory -Path $destDir
 
     if ((Test-Path $dest) -and $forceReinstall) {
         Write-Info "Removendo arquivo existente: $($file.Name)"
