@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+# Script de reinstalação rápida do a11yctl (Bash)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -f "$SCRIPT_DIR/install.sh" ]]; then
+    bash "$SCRIPT_DIR/install.sh"
+else
+    echo "[a11yctl-reinstall] install.sh não encontrado no diretório do a11yctl." >&2
+    exit 1
+fi

@@ -1,0 +1,39 @@
+#!/bin/bash
+set -euo pipefail
+
+# Script de desinstalação do a11yctl (Bash)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+BIN_NAMES=(a11yctl ea11ctl)
+BIN_DIRS=(/usr/local/bin "$HOME/.local/bin" "$HOME/.a11yctl/bin")
+
+for bin in "${BIN_NAMES[@]}"; do
+    for dir in "${BIN_DIRS[@]}"; do
+        if [[ -f "$dir/$bin" ]]; then
+            echo "Removendo $dir/$bin"
+            rm -f "$dir/$bin"
+        fi
+    done
+    if [[ -f "$SCRIPT_DIR/$bin" ]]; then
+        echo "Removendo $SCRIPT_DIR/$bin"
+        rm -f "$SCRIPT_DIR/$bin"
+    fi
+    if [[ -f "$SCRIPT_DIR/$bin.cmd" ]]; then
+        echo "Removendo $SCRIPT_DIR/$bin.cmd"
+        rm -f "$SCRIPT_DIR/$bin.cmd"
+    fi
+    if [[ -f "$SCRIPT_DIR/$bin.ps1" ]]; then
+        echo "Removendo $SCRIPT_DIR/$bin.ps1"
+        rm -f "$SCRIPT_DIR/$bin.ps1"
+    fi
+
+done
+
+# Opcional: remover scripts de backend e estado
+read -p "Deseja remover também o diretório de estado (~/.a11yctl)? [s/N]: " resp
+if [[ "$resp" =~ ^[sSyY]$ ]]; then
+    rm -rf "$HOME/.a11yctl"
+    echo "Diretório ~/.a11yctl removido."
+else
+    echo "Diretório ~/.a11yctl preservado."
+fi
