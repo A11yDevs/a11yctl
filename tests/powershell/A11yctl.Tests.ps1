@@ -98,4 +98,48 @@ Describe 'a11yctl PowerShell minimum tests' {
 
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    It 'alias migrate tambem executa migracao de estado' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        $legacy = Join-Path $testHome '.emacs-a11y-vm'
+        $target = Join-Path $testHome '.a11yctl'
+
+        New-Item -ItemType Directory -Path $legacy -Force | Out-Null
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -Path (Join-Path $legacy 'debian-a11ydevs.qcow2') -Value 'legacy-disk' -NoNewline
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('migrate', '--quiet') -HomePath $testHome
+
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
+        Test-Path (Join-Path $target 'debian-a11ydevs.qcow2') | Should -BeTrue
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'comando invalido retorna erro e mensagem clara' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('comando-inexistente') -HomePath $testHome
+
+        $result.ExitCode | Should -Not -Be 0 -Because "Comando invalido deve falhar"
+        $result.Output | Should -Match 'Comando desconhecido'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'version retorna a versao da CLI' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('version') -HomePath $testHome
+
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
+        $result.Output | Should -Match 'a11yctl v'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }

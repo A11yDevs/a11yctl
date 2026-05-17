@@ -51,6 +51,18 @@ assert_file_exists() {
     fi
 }
 
+assert_not_equals() {
+    local left="$1"
+    local right="$2"
+    local label="$3"
+
+    if [[ "$left" != "$right" ]]; then
+        pass "$label"
+    else
+        fail "$label"
+    fi
+}
+
 run_migrate_conflict_test() {
     local tmp home legacy target output
     tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
@@ -104,9 +116,63 @@ run_no_legacy_test() {
     rm -rf "$tmp"
 }
 
+run_migrate_alias_test() {
+    local tmp home legacy target
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    home="$tmp/home"
+    legacy="$home/.emacs-a11y-vm"
+    target="$home/.a11yctl"
+
+    mkdir -p "$legacy" "$target"
+    printf 'legacy-disk\n' > "$legacy/debian-a11ydevs.qcow2"
+
+    HOME="$home" USERPROFILE="$home" bash "$REPO_DIR/a11yctl" migrate --quiet >/dev/null 2>&1
+    assert_equals "$?" "0" "alias migrate retorna sucesso"
+    assert_file_exists "$target/debian-a11ydevs.qcow2" "alias migrate copia estado legado"
+
+    rm -rf "$tmp"
+}
+
+run_unknown_command_test() {
+    local tmp home output
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    home="$tmp/home"
+    mkdir -p "$home"
+
+    set +e
+    output="$(HOME="$home" USERPROFILE="$home" bash "$REPO_DIR/a11yctl" comando-inexistente 2>&1)"
+    local status=$?
+    set -e
+
+    assert_not_equals "$status" "0" "comando invalido retorna falha"
+    assert_contains "$output" "Comando desconhecido" "comando invalido informa erro"
+
+    rm -rf "$tmp"
+}
+
+run_wrapper_invalid_command_test() {
+    local tmp home output
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    home="$tmp/home"
+    mkdir -p "$home"
+
+    set +e
+    output="$(HOME="$home" USERPROFILE="$home" bash "$REPO_DIR/ea11ctl" comando-inexistente 2>&1)"
+    local status=$?
+    set -e
+
+    assert_not_equals "$status" "0" "wrapper legado propaga erro de comando invalido"
+    assert_contains "$output" "Aviso: ea11ctl esta obsoleto" "wrapper legado mantem aviso em erro"
+
+    rm -rf "$tmp"
+}
+
 run_migrate_conflict_test
 run_wrapper_test
 run_no_legacy_test
+run_migrate_alias_test
+run_unknown_command_test
+run_wrapper_invalid_command_test
 
 printf '\nResumo: %d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 
