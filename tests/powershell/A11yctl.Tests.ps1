@@ -1,6 +1,6 @@
 Set-StrictMode -Version Latest
 
-function Get-TestScriptPath {
+function global:Get-TestScriptPath {
     param([Parameter(Mandatory = $true)][string]$FileName)
 
     $testsDir = $PSScriptRoot
