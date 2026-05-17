@@ -15,6 +15,14 @@ iex (iwr 'https://raw.githubusercontent.com/A11yDevs/a11yctl/main/install.ps1' -
 
 O instalador baixa os arquivos publicados na raiz deste repositorio para ~/.a11yctl/bin no Windows e adiciona esse diretorio ao PATH do usuario.
 
+No macOS e Linux (bash/zsh):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/A11yDevs/a11yctl/main/install.sh | bash
+```
+
+O instalador Bash instala o comando em /usr/local/bin (quando permitido) ou ~/.local/bin, instala os scripts de backend em ~/.a11yctl/scripts e tenta migrar automaticamente o estado legado quando encontra ~/.emacs-a11y-vm.
+
 ## Uso basico
 
 ```powershell
@@ -29,6 +37,10 @@ a11yctl vm ssh
 Compatibilidade temporaria:
 
 ```powershell
+ea11ctl help
+```
+
+```bash
 ea11ctl help
 ```
 
@@ -71,15 +83,25 @@ Para atualizar a CLI instalada localmente:
 a11yctl self-update
 ```
 
+```bash
+a11yctl self-update
+```
+
 O self-update baixa os arquivos diretamente da raiz de A11yDevs/a11yctl e atualiza:
 
+- a11yctl
+- ea11ctl
 - a11yctl.ps1
 - a11yctl.cmd
 - ea11ctl.ps1
 - ea11ctl.cmd
+- install.sh
 - install.ps1
 - VERSION
+- backend-scripts/common.sh
+- backend-scripts/qemu.sh
+- backend-scripts/host.sh
 
 ## Compatibilidade com ea11ctl
 
-Durante esta fase de migracao, ea11ctl continua funcional apenas como wrapper de compatibilidade. O comportamento real da CLI esta em a11yctl.ps1.
+Durante esta fase de migracao, ea11ctl continua funcional apenas como wrapper de compatibilidade. O comportamento real da CLI esta em a11yctl.ps1 (PowerShell) e a11yctl (Bash).

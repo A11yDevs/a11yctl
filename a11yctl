@@ -1,0 +1,1568 @@
+#!/bin/bash
+
+#################################################################################
+# a11yctl - CLI do projeto a11yctl para bash (macOS, Linux)
+# Version: compatível com a CLI de PowerShell
+#################################################################################
+
+set -euo pipefail
+
+# Constantes
+EA11CTL_FALLBACK_VERSION='0.2.0'
+EA11CTL_OWNER='A11yDevs'
+EA11CTL_REPO='a11yctl'
+EA11CTL_BRANCH='main'
+EA11CTL_GUEST_MODE_FILE='/etc/ea11-guest-mode'
+A11YCTL_STATE_DIRNAME='.a11yctl'
+A11YCTL_LEGACY_STATE_DIRNAME='.emacs-a11y-vm'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+#################################################################################
+# Deteccao de Contexto (Host vs Guest)
+#################################################################################
+
+is_guest_context() {
+    [[ -f "$EA11CTL_GUEST_MODE_FILE" ]]
+}
+
+get_execution_context() {
+    if is_guest_context; then
+        echo "guest"
+    else
+        echo "host"
+    fi
+}
+
+#################################################################################
+# Funções de Logging
+#################################################################################
+
+ea11_info() {
+    printf '\033[36m[a11yctl] %s\033[0m\n' "$*" >&2
+}
+
+compare_semver() {
+    local left="$1"
+    local right="$2"
+    local IFS='.'
+    local -a left_parts right_parts
+    local i max left_num right_num
+
+    read -r -a left_parts <<< "$left"
+    read -r -a right_parts <<< "$right"
+
+    max=${#left_parts[@]}
+    if (( ${#right_parts[@]} > max )); then
+        max=${#right_parts[@]}
+    fi
+
+    for ((i=0; i<max; i++)); do
+        left_num=${left_parts[i]:-0}
+        right_num=${right_parts[i]:-0}
+        if ((10#$left_num > 10#$right_num)); then
+            echo 1
+            return 0
+        fi
+        if ((10#$left_num < 10#$right_num)); then
+            echo -1
+            return 0
+        fi
+    done
+
+    echo 0
+}
+ea11_warn() {
+    printf '\033[33m[a11yctl] %s\033[0m\n' "$*" >&2
+}
+
+ea11_error() {
+    printf '\033[31m[a11yctl] %s\033[0m\n' "$*" >&2
+}
+
+ea11_success() {
+    printf '\033[32m%s\033[0m\n' "$*" >&2
+}
+
+#################################################################################
+# Funções de Versão
+#################################################################################
+
+get_local_cli_version() {
+    local version_file="$SCRIPT_DIR/VERSION"
+    if [[ -f "$version_file" ]]; then
+        local version
+        version=$(tr -d '[:space:]' < "$version_file")
+        if [[ -n "$version" ]]; then
+            echo "$version"
+            return 0
+        fi
+    fi
+    echo "$EA11CTL_FALLBACK_VERSION"
+}
+
+get_remote_cli_version() {
+    local url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/VERSION"
+    local result
+    result=$(curl -s --max-time 5 "$url" 2>/dev/null || echo '')
+    if [[ -n "$result" ]]; then
+        echo "$result" | tr -d '[:space:]'
+    else
+        echo ""
+    fi
+}
+
+get_github_api_version() {
+    local url="https://api.github.com/repos/$EA11CTL_OWNER/$EA11CTL_REPO/commits/$EA11CTL_BRANCH"
+    local result
+    result=$(curl -s --max-time 5 \
+        -H 'Accept: application/vnd.github+json' \
+        "$url" 2>/dev/null || echo '')
+    
+    if [[ -n "$result" ]]; then
+        echo "$result" | grep -o '"sha":"[^"]*' | head -1 | cut -d'"' -f4
+    else
+        echo ""
+    fi
+}
+
+invoke_version_command() {
+    local local_version
+    local_version=$(get_local_cli_version)
+    echo "a11yctl v$local_version"
+    
+    if ! has_flag --check-update "$@" && ! has_flag -c "$@"; then
+        return 0
+    fi
+    
+    local remote_version
+    remote_version=$(get_remote_cli_version) || true
+    
+    if [[ -z "$remote_version" ]]; then
+        ea11_warn "Não foi possível consultar versão remota"
+        return 0
+    fi
+    
+    local cmp
+    cmp=$(compare_semver "$remote_version" "$local_version")
+
+    if [[ "$cmp" == "1" ]]; then
+        ea11_info "Nova versão disponível: $remote_version (local: $local_version)"
+        echo "Use: a11yctl self-update" | sed 's/^/  /'
+    elif [[ "$cmp" == "0" ]]; then
+        ea11_info "Você já está na versão mais recente ($local_version)."
+    else
+        ea11_info "Sua CLI local ($local_version) está à frente da remota ($remote_version)."
+    fi
+}
+
+#################################################################################
+# Funções de Atualização
+#################################################################################
+
+invoke_self_update() {
+    local force=0
+    if has_flag --force "$@" || has_flag -f "$@"; then
+        force=1
+    fi
+    
+    local local_version
+    local_version=$(get_local_cli_version)
+    
+    if [[ $force -eq 0 ]]; then
+        local remote_version
+        remote_version=$(get_remote_cli_version) || true
+        
+        if [[ -z "$remote_version" ]]; then
+            ea11_warn "Não foi possível validar versão remota; prosseguindo com update."
+        else
+            local cmp
+            cmp=$(compare_semver "$remote_version" "$local_version")
+
+            if [[ "$cmp" == "0" ]]; then
+                ea11_info "a11yctl já está atualizado (v$local_version)."
+                return 0
+            fi
+
+            if [[ "$cmp" == "-1" ]]; then
+                ea11_info "a11yctl local (v$local_version) está à frente do remoto (v$remote_version)."
+                return 0
+            fi
+
+            ea11_info "Atualizando a11yctl de v$local_version para v$remote_version..."
+        fi
+    fi
+    
+    # Resolvendo a referência remota (commit SHA)
+    local resolved_ref="$EA11CTL_BRANCH"
+    local commit_sha
+    commit_sha=$(get_github_api_version) || true
+    
+    if [[ -n "$commit_sha" ]]; then
+        resolved_ref="$commit_sha"
+        ea11_info "Ref remoto resolvido para commit $resolved_ref"
+    else
+        ea11_warn "Não foi possível resolver SHA da branch; usando ref '$EA11CTL_BRANCH'."
+    fi
+    
+    local install_dir="$SCRIPT_DIR"
+    local tmp_dir
+    tmp_dir=$(mktemp -d -t a11yctl-update-XXXXXX)
+    trap "rm -rf '$tmp_dir'" EXIT
+    mkdir -p "$tmp_dir/backend-scripts"
+
+    local files=(a11yctl ea11ctl a11yctl.ps1 a11yctl.cmd ea11ctl.ps1 ea11ctl.cmd install.sh install.ps1 VERSION)
+    local backend_files=(backend-scripts/common.sh backend-scripts/qemu.sh backend-scripts/host.sh)
+    local cache_bust
+    cache_bust=$(date +%s)
+    
+    local download_ok=0
+    local last_error=""
+    
+    for ref in "$resolved_ref" "$EA11CTL_BRANCH"; do
+        ea11_info "Tentando download dos arquivos via ref '$ref'..."
+        download_ok=1
+        
+        for file in "${files[@]}" "${backend_files[@]}"; do
+            local dest="$tmp_dir/$file"
+            local url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$ref/$file?cb=$cache_bust"
+            
+            if ! curl -fsSL "$url" -o "$dest" 2>/dev/null; then
+                last_error="Falha ao baixar $file"
+                download_ok=0
+                break
+            fi
+        done
+        
+        if [[ $download_ok -eq 1 ]]; then
+            break
+        fi
+    done
+    
+    if [[ $download_ok -eq 0 ]]; then
+        ea11_error "Não foi possível baixar arquivos de update. Último erro: $last_error"
+        return 1
+    fi
+    
+    # Copiar os arquivos principais
+    for file in "${files[@]}"; do
+        local src="$tmp_dir/$file"
+        local dest="$install_dir/$file"
+        if [[ -f "$src" ]]; then
+            cp "$src" "$dest"
+            [[ "$file" == "a11yctl" ]] && chmod +x "$dest"
+        fi
+    done
+
+    # Copiar backend scripts para o diretório de instalação
+    mkdir -p "$install_dir/backend-scripts"
+    for file in "${backend_files[@]}"; do
+        local src="$tmp_dir/$file"
+        local dest="$install_dir/$file"
+        if [[ -f "$src" ]]; then
+            cp "$src" "$dest"
+        fi
+    done
+    chmod +x "$install_dir/backend-scripts/qemu.sh" \
+              "$install_dir/backend-scripts/host.sh" 2>/dev/null || true
+
+    sync_backend_scripts_from_remote || true
+    
+    local new_version
+    new_version=$(get_local_cli_version)
+    ea11_success "a11yctl atualizado para v$new_version"
+}
+
+#################################################################################
+# Funções Utilitárias
+#################################################################################
+
+has_flag() {
+    local needle="$1"
+    shift
+    for arg in "$@"; do
+        [[ "$arg" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+get_option_value() {
+    local name="$1"
+    shift
+    local i=0
+    for arg in "$@"; do
+        if [[ "$arg" == "$name" ]] && (( i + 1 < $# )); then
+            echo "${@:i+2:1}"
+            return 0
+        fi
+        ((i++))
+    done
+    return 1
+}
+
+get_home_directory() {
+    if [[ -n "${HOME:-}" ]]; then
+        echo "$HOME"
+    else
+        echo ~
+    fi
+}
+
+get_ea11_state_directory() {
+    local base
+    base=$(get_home_directory)/$A11YCTL_STATE_DIRNAME
+    mkdir -p "$base"
+    echo "$base"
+}
+
+get_legacy_ea11_state_directory() {
+    echo "$(get_home_directory)/$A11YCTL_LEGACY_STATE_DIRNAME"
+}
+
+resolve_migration_conflict_path() {
+    local original="$1"
+    local directory filename basename extension candidate counter
+
+    directory="$(dirname "$original")"
+    filename="$(basename "$original")"
+
+    if [[ "$filename" == *.* ]]; then
+        basename="${filename%.*}"
+        extension=".${filename##*.}"
+    else
+        basename="$filename"
+        extension=""
+    fi
+
+    candidate="$directory/${basename}.migrated${extension}"
+    counter=2
+    while [[ -e "$candidate" ]]; do
+        candidate="$directory/${basename}.migrated-${counter}${extension}"
+        counter=$((counter + 1))
+    done
+
+    echo "$candidate"
+}
+
+invoke_state_migration() {
+    local quiet="${1:-0}"
+    local legacy_dir target_dir copied_count renamed_count
+
+    legacy_dir="$(get_legacy_ea11_state_directory)"
+    if [[ ! -d "$legacy_dir" ]]; then
+        if [[ "$quiet" -ne 1 ]]; then
+            ea11_info "Nenhum diretorio legado encontrado em $legacy_dir"
+        fi
+        return 0
+    fi
+
+    target_dir="$(get_ea11_state_directory)"
+    copied_count=0
+    renamed_count=0
+
+    while IFS= read -r -d '' dir; do
+        local rel_dir
+        rel_dir="${dir#$legacy_dir/}"
+        [[ "$rel_dir" == "$dir" ]] && continue
+        mkdir -p "$target_dir/$rel_dir"
+    done < <(find "$legacy_dir" -type d -print0)
+
+    while IFS= read -r -d '' file; do
+        local rel_file dest
+        rel_file="${file#$legacy_dir/}"
+        [[ "$rel_file" == "$file" ]] && continue
+
+        dest="$target_dir/$rel_file"
+        mkdir -p "$(dirname "$dest")"
+
+        if [[ -e "$dest" ]]; then
+            dest="$(resolve_migration_conflict_path "$dest")"
+            renamed_count=$((renamed_count + 1))
+        fi
+
+        cp -p "$file" "$dest"
+        copied_count=$((copied_count + 1))
+    done < <(find "$legacy_dir" -type f -print0)
+
+    if [[ "$quiet" -ne 1 ]]; then
+        ea11_info "Migracao concluida: ${copied_count} arquivo(s) copiado(s), ${renamed_count} conflito(s) resolvido(s) com .migrated."
+        ea11_info "O diretorio legado foi preservado em $legacy_dir"
+        ea11_info "Novo diretorio de estado: $target_dir"
+    fi
+}
+
+invoke_migrate_state_command() {
+    local quiet=0
+    if has_flag --quiet "$@"; then
+        quiet=1
+    fi
+
+    invoke_state_migration "$quiet"
+}
+
+get_ea11_scripts_directory() {
+    local scripts_dir
+    scripts_dir="$(get_ea11_state_directory)/scripts"
+    mkdir -p "$scripts_dir"
+    echo "$scripts_dir"
+}
+
+assert_no_backend_option() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            -b|--backend|--qemu|--virtualbox)
+                ea11_error 'A opcao de backend foi removida. A CLI agora e QEMU-only.'
+                return 1
+                ;;
+        esac
+    done
+    return 0
+}
+
+qemu_has_registered_vm() {
+    local qemu_state_dir
+    qemu_state_dir="$(get_ea11_state_directory)/qemu"
+
+    if [[ ! -d "$qemu_state_dir" ]]; then
+        return 1
+    fi
+
+    shopt -s nullglob
+    local files=("$qemu_state_dir"/*.env)
+    shopt -u nullglob
+
+    [[ ${#files[@]} -gt 0 ]]
+}
+
+sync_backend_scripts_from_repo() {
+    local source_dir="$SCRIPT_DIR/backend-scripts"
+    local target_dir
+    target_dir=$(get_ea11_scripts_directory)
+    local file
+
+    if [[ ! -d "$source_dir" ]]; then
+        return 0
+    fi
+
+    for file in common.sh qemu.sh host.sh; do
+        if [[ -f "$source_dir/$file" ]]; then
+            cp "$source_dir/$file" "$target_dir/$file"
+        fi
+    done
+
+    chmod +x "$target_dir/qemu.sh" "$target_dir/host.sh" 2>/dev/null || true
+}
+
+sync_backend_scripts_from_remote() {
+    local target_dir
+    target_dir=$(get_ea11_scripts_directory)
+    local base_url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/backend-scripts"
+    local file
+
+    for file in common.sh qemu.sh host.sh; do
+        if ! curl -fsSL "$base_url/$file" -o "$target_dir/$file" 2>/dev/null; then
+            ea11_warn "Nao foi possivel atualizar backend script: $file"
+            return 1
+        fi
+    done
+
+    chmod +x "$target_dir/qemu.sh" "$target_dir/host.sh" 2>/dev/null || true
+}
+
+resolve_backend_script_path() {
+    local backend="$1"
+    local target_dir
+    target_dir=$(get_ea11_scripts_directory)
+
+    # Mantem backend scripts sincronizados com esta instalacao da CLI.
+    sync_backend_scripts_from_repo
+
+    if [[ -f "$target_dir/$backend.sh" ]]; then
+        echo "$target_dir/$backend.sh"
+        return 0
+    fi
+
+    if [[ -f "$target_dir/$backend.sh" ]]; then
+        echo "$target_dir/$backend.sh"
+        return 0
+    fi
+
+    ea11_error "Script de backend nao encontrado para '$backend' em $target_dir. Reinstale a CLI ou execute o instalador novamente."
+    return 1
+}
+
+run_backend_command() {
+    local command="$1"
+    shift
+
+    local backend='qemu'
+    local script_path
+    script_path=$(resolve_backend_script_path "$backend") || return 1
+    bash "$script_path" "$command" "$@"
+}
+
+#################################################################################
+# Funcoes de VM
+#################################################################################
+
+invoke_vm_install() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command install "$@"
+}
+
+invoke_vm_list() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command list "$@"
+}
+
+invoke_vm_start() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command start "$@"
+}
+
+invoke_vm_stop() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command stop "$@"
+}
+
+invoke_vm_status() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command status "$@"
+}
+
+invoke_vm_ssh() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command ssh "$@"
+}
+
+invoke_vm_diagnose() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command diagnose "$@"
+}
+
+invoke_vm_close() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command close "$@"
+}
+
+invoke_vm_remove() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command remove "$@"
+}
+
+invoke_vm_host_share() {
+    local action="${1:-list}"
+    shift || true
+
+    run_backend_command qemu share "$action" "$@"
+}
+
+invoke_vm_config() {
+    local action="${1:-show}"
+    shift || true
+    run_backend_command config "$action" "$@"
+}
+
+invoke_vm_optimize() {
+    run_backend_command optimize "$@"
+}
+
+#################################################################################
+# Funcoes de Host (Debian/Ubuntu nativa)
+#################################################################################
+
+invoke_host_install() {
+    local backend='host'
+    local script_path
+    script_path=$(resolve_backend_script_path "$backend") || return 1
+    bash "$script_path" install "$@"
+}
+
+invoke_vm_command() {
+    local action="${1:-}"
+    shift || true
+    
+    case "$action" in
+        install|-i)
+            invoke_vm_install "$@"
+            ;;
+        version|-V)
+            assert_no_backend_option "$@" || return 1
+            run_backend_command version "$@"
+            ;;
+        check-update|-U)
+            assert_no_backend_option "$@" || return 1
+            run_backend_command check-update "$@"
+            ;;
+        list|-l)
+            invoke_vm_list "$@"
+            ;;
+        start|-s)
+            invoke_vm_start "$@"
+            ;;
+        stop|-S)
+            invoke_vm_stop "$@"
+            ;;
+        close|-c)
+            invoke_vm_close "$@"
+            ;;
+        remove|-r|delete)
+            invoke_vm_remove "$@"
+            ;;
+        status|-q)
+            invoke_vm_status "$@"
+            ;;
+        diagnose|-d)
+            invoke_vm_diagnose "$@"
+            ;;
+        ssh|-x)
+            invoke_vm_ssh "$@"
+            ;;
+        share-folder|-F)
+            invoke_vm_host_share "$@"
+            ;;
+        host-share|-H)
+            invoke_vm_host_share "$@"
+            ;;
+        config)
+            invoke_vm_config "$@"
+            ;;
+        optimize)
+            invoke_vm_optimize "$@"
+            ;;
+        *)
+            ea11_error "Subcomando vm desconhecido: $action"
+            show_help
+            return 1
+            ;;
+    esac
+}
+
+invoke_host_command_main() {
+    local action="${1:-}"
+    shift || true
+    
+    case "$action" in
+        install|-i)
+            invoke_host_install "$@"
+            ;;
+        *)
+            ea11_error "Subcomando host desconhecido: $action"
+            show_help
+            return 1
+            ;;
+    esac
+}
+
+#################################################################################
+# Funcoes de Guest (Compartilhamento de pasta do host)
+#################################################################################
+
+read_fw_cfg_string() {
+    local key="$1"
+    local value=""
+    local raw_path="/sys/firmware/qemu_fw_cfg/by_name/opt/ea11/${key}/raw"
+    local alt_path="/sys/firmware/qemu_fw_cfg/by_name/opt/ea11/${key}"
+
+    if [[ -r "$raw_path" ]]; then
+        value="$(tr -d '\0\r\n' < "$raw_path" 2>/dev/null || true)"
+    elif [[ -r "$alt_path" ]]; then
+        value="$(tr -d '\0\r\n' < "$alt_path" 2>/dev/null || true)"
+    fi
+
+    printf '%s\n' "$value"
+}
+
+sanitize_user() {
+    local value="$1"
+    value="$(printf '%s' "$value" | tr -cd '[:alnum:]_-')"
+    if [[ -z "$value" ]]; then
+        printf 'hosthome\n'
+        return
+    fi
+    printf '%s\n' "$value"
+}
+
+host_share_mountpoint() {
+    local host_user
+    host_user="$(sanitize_user "$(read_fw_cfg_string host_user)")"
+    printf '/home/%s\n' "$host_user"
+}
+
+invoke_guest_share_list() {
+    local mount_point
+    mount_point="$(host_share_mountpoint)"
+
+    echo "Mount point esperado: $mount_point"
+    echo
+    findmnt -rn -t cifs,fuse.sshfs,9p || true
+}
+
+invoke_guest_share_config() {
+    local mode host_user ssh_host ssh_port ssh_user ssh_path smb_server smb_share smb_user
+
+    mode="$(read_fw_cfg_string share_mode)"
+    host_user="$(sanitize_user "$(read_fw_cfg_string host_user)")"
+    ssh_host="$(read_fw_cfg_string ssh_host)"
+    ssh_port="$(read_fw_cfg_string ssh_port)"
+    ssh_user="$(read_fw_cfg_string ssh_user)"
+    ssh_path="$(read_fw_cfg_string ssh_path)"
+    smb_server="$(read_fw_cfg_string smb_server)"
+    smb_share="$(read_fw_cfg_string smb_share)"
+    smb_user="$(read_fw_cfg_string smb_user)"
+
+    printf 'mode=%s\n' "${mode:-auto}"
+    printf 'host_user=%s\n' "${host_user}"
+    printf 'ssh_host=%s\n' "${ssh_host}"
+    printf 'ssh_port=%s\n' "${ssh_port}"
+    printf 'ssh_user=%s\n' "${ssh_user}"
+    printf 'ssh_path=%s\n' "${ssh_path}"
+    printf 'smb_server=%s\n' "${smb_server}"
+    printf 'smb_share=%s\n' "${smb_share}"
+    printf 'smb_user=%s\n' "${smb_user}"
+}
+
+invoke_guest_share_mount() {
+    sudo /usr/local/bin/mount-shared-folder.sh
+}
+
+invoke_guest_share_umount() {
+    local mount_point
+    mount_point="$(host_share_mountpoint)"
+
+    if mountpoint -q "$mount_point"; then
+        sudo umount "$mount_point"
+        echo "Desmontado: $mount_point"
+    else
+        echo "Nao montado: $mount_point"
+    fi
+}
+
+invoke_guest_share_command() {
+    local action="${1:-}"
+    shift || true
+    
+    case "$action" in
+        list|-l)
+            invoke_guest_share_list "$@"
+            ;;
+        config|-c)
+            invoke_guest_share_config "$@"
+            ;;
+        mount|-m)
+            invoke_guest_share_mount "$@"
+            ;;
+        umount|-u)
+            invoke_guest_share_umount "$@"
+            ;;
+        *)
+            ea11_error "Subcomando share desconhecido: $action"
+            show_help
+            return 1
+            ;;
+    esac
+}
+
+invoke_uninstall() {
+    local purge_state=0 yes=0 force_repo_path=0
+    if has_flag --purge-state "$@"; then
+        purge_state=1
+    fi
+    if has_flag --yes "$@" || has_flag -y "$@"; then
+        yes=1
+    fi
+    if has_flag --force-repo-path "$@"; then
+        force_repo_path=1
+    fi
+
+    if [[ -d "$SCRIPT_DIR/../.git" && $force_repo_path -eq 0 ]]; then
+        ea11_error 'Desinstalacao bloqueada: esta CLI parece estar sendo executada do checkout do repositorio.'
+        ea11_error 'Use --force-repo-path para confirmar remocao neste diretorio.'
+        return 1
+    fi
+
+    if [[ $yes -eq 0 ]]; then
+        ea11_warn 'Esta acao desinstala a CLI atual.'
+        if [[ $purge_state -eq 1 ]]; then
+            ea11_warn 'Tambem removera o diretorio ~/.a11yctl (VMs, estado e logs).'
+        fi
+        printf 'Digite "yes" para confirmar: '
+        local reply
+        read -r reply
+        if [[ "$reply" != 'yes' ]]; then
+            ea11_info 'Desinstalacao cancelada.'
+            return 0
+        fi
+    fi
+
+    local install_dir="$SCRIPT_DIR"
+    local files=(a11yctl ea11ctl install.sh VERSION a11yctl.ps1 a11yctl.cmd ea11ctl.ps1 ea11ctl.cmd install.ps1)
+    local f
+    for f in "${files[@]}"; do
+        rm -f "$install_dir/$f" 2>/dev/null || true
+    done
+
+    rm -rf "$(get_ea11_scripts_directory)" 2>/dev/null || true
+
+    if [[ $purge_state -eq 1 ]]; then
+        rm -rf "$(get_ea11_state_directory)" 2>/dev/null || true
+    fi
+
+    ea11_success 'a11yctl desinstalado neste diretório.'
+    if [[ $purge_state -eq 0 ]]; then
+        ea11_info 'Para remover VMs e dados, use: a11yctl vm remove --all --yes ou a11yctl uninstall --purge-state --yes'
+    fi
+}
+
+#################################################################################
+# Modo Interativo (Host)
+#################################################################################
+
+trim_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+interactive_prompt() {
+    local context="$1"
+    case "$context" in
+        vm) printf 'a11yctl vm> ' ;;
+        vm_config) printf 'a11yctl vm config> ' ;;
+        vm_host_share) printf 'a11yctl vm host-share> ' ;;
+        host) printf 'a11yctl host> ' ;;
+        *) printf 'a11yctl> ' ;;
+    esac
+}
+
+set_interactive_debug_mode() {
+    local mode="${1:-status}"
+    case "$mode" in
+        on|1|true)
+            export EA11_DEBUG=1
+            echo 'DEBUG ativado para esta sessão interativa.'
+            ;;
+        off|0|false)
+            unset EA11_DEBUG
+            echo 'DEBUG desativado para esta sessão interativa.'
+            ;;
+        status)
+            if [[ "${EA11_DEBUG:-0}" == '1' ]]; then
+                echo 'DEBUG está ativado.'
+            else
+                echo 'DEBUG está desativado.'
+            fi
+            ;;
+        *)
+            echo "Valor inválido para debug: $mode"
+            echo "Use: debug on | debug off | debug status"
+            ;;
+    esac
+}
+
+is_root_command_token() {
+    local token="$1"
+    case "$token" in
+        help|\?|version|--version|self-update|update|migrate|migrate-state|uninstall|vm|host|status|debug|clear|exit|quit)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+parse_interactive_line() {
+    local line="$1"
+    local trimmed
+    trimmed="$(trim_whitespace "$line")"
+
+    INTERACTIVE_TOKENS=()
+    if [[ -z "$trimmed" ]]; then
+        return 1
+    fi
+
+    # Parser simples e previsivel para leitores de tela.
+    read -r -a INTERACTIVE_TOKENS <<< "$trimmed"
+    return 0
+}
+
+normalize_aliases() {
+    local context="$1"
+    shift
+
+    NORMALIZED_TOKENS=("$@")
+    if [[ ${#NORMALIZED_TOKENS[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    case "${NORMALIZED_TOKENS[0]}" in
+        update)
+            NORMALIZED_TOKENS[0]='self-update'
+            ;;
+    esac
+
+    if [[ "$context" == 'vm' ]] && [[ "${NORMALIZED_TOKENS[0]}" == 'delete' ]]; then
+        NORMALIZED_TOKENS[0]='remove'
+    fi
+}
+
+resolve_context_command() {
+    local context="$1"
+    shift
+
+    RESOLVE_ACTION='dispatch'
+    RESOLVE_NEXT_CONTEXT="$context"
+    RESOLVED_COMMAND=()
+
+    if [[ $# -eq 0 ]]; then
+        RESOLVE_ACTION='noop'
+        return 0
+    fi
+
+    local first="$1"
+
+    case "$first" in
+        help|\?)
+            RESOLVE_ACTION='help'
+            return 0
+            ;;
+        debug)
+            RESOLVE_ACTION='debug_toggle'
+            RESOLVED_COMMAND=("$@")
+            return 0
+            ;;
+        exit|quit)
+            RESOLVE_ACTION='exit'
+            return 0
+            ;;
+        clear)
+            RESOLVE_ACTION='clear'
+            return 0
+            ;;
+        back)
+            RESOLVE_ACTION='back'
+            case "$context" in
+                root)
+                    RESOLVE_NEXT_CONTEXT='root'
+                    ;;
+                vm|host)
+                    RESOLVE_NEXT_CONTEXT='root'
+                    ;;
+                vm_config|vm_host_share)
+                    RESOLVE_NEXT_CONTEXT='vm'
+                    ;;
+                *)
+                    RESOLVE_NEXT_CONTEXT='root'
+                    ;;
+            esac
+            return 0
+            ;;
+        status)
+            case "$context" in
+                root|vm)
+                    RESOLVE_ACTION='dispatch'
+                    RESOLVED_COMMAND=(vm status)
+                    ;;
+                *)
+                    RESOLVE_ACTION='status_unavailable'
+                    ;;
+            esac
+            return 0
+            ;;
+    esac
+
+    case "$context" in
+        root)
+            if [[ "$first" == 'vm' ]] && [[ $# -eq 1 ]]; then
+                RESOLVE_ACTION='enter_context'
+                RESOLVE_NEXT_CONTEXT='vm'
+                return 0
+            fi
+            if [[ "$first" == 'host' ]] && [[ $# -eq 1 ]]; then
+                RESOLVE_ACTION='enter_context'
+                RESOLVE_NEXT_CONTEXT='host'
+                return 0
+            fi
+            RESOLVED_COMMAND=("$@")
+            ;;
+        vm)
+            if [[ "$first" == 'config' ]] && [[ $# -eq 1 ]]; then
+                RESOLVE_ACTION='enter_context'
+                RESOLVE_NEXT_CONTEXT='vm_config'
+                return 0
+            fi
+            if [[ "$first" == 'host-share' ]] && [[ $# -eq 1 ]]; then
+                RESOLVE_ACTION='enter_context'
+                RESOLVE_NEXT_CONTEXT='vm_host_share'
+                return 0
+            fi
+            if is_root_command_token "$first"; then
+                RESOLVED_COMMAND=("$@")
+            else
+                RESOLVED_COMMAND=(vm "$@")
+            fi
+            ;;
+        vm_config)
+            if is_root_command_token "$first"; then
+                RESOLVED_COMMAND=("$@")
+            elif [[ "$first" == 'vm' ]] || [[ "$first" == 'host' ]]; then
+                RESOLVED_COMMAND=("$@")
+            else
+                RESOLVED_COMMAND=(vm config "$@")
+            fi
+            ;;
+        vm_host_share)
+            if is_root_command_token "$first"; then
+                RESOLVED_COMMAND=("$@")
+            elif [[ "$first" == 'vm' ]] || [[ "$first" == 'host' ]]; then
+                RESOLVED_COMMAND=("$@")
+            else
+                RESOLVED_COMMAND=(vm host-share "$@")
+            fi
+            ;;
+        host)
+            if is_root_command_token "$first"; then
+                RESOLVED_COMMAND=("$@")
+            elif [[ "$first" == 'vm' ]] || [[ "$first" == 'host' ]]; then
+                RESOLVED_COMMAND=("$@")
+            else
+                RESOLVED_COMMAND=(host "$@")
+            fi
+            ;;
+        *)
+            RESOLVED_COMMAND=("$@")
+            ;;
+    esac
+}
+
+show_context_help() {
+    local context="$1"
+    case "$context" in
+        root)
+            cat << 'EOF'
+Comandos disponíveis:
+
+version       mostra a versão do a11yctl
+self-update   atualiza o a11yctl
+migrate       migra o estado legado para ~/.a11yctl
+migrate-state alias de migrate
+vm            entra no contexto de VM
+host          entra no contexto de instalação nativa
+status        mostra o status da VM padrão
+debug         ativa/desativa debug da sessão (on|off|status)
+clear         limpa a tela
+exit          sai
+
+Exemplos:
+
+vm
+vm status
+vm start --headless
+debug on
+self-update -f
+EOF
+            ;;
+        vm)
+            cat << 'EOF'
+Comandos de VM:
+
+install        instala a VM
+version        mostra a versão da VM
+check-update   verifica atualização da VM
+list           lista VMs
+start          inicia a VM
+stop           para a VM
+close          fecha a VM com timeout
+remove         remove a VM
+delete         remove a VM (alias)
+diagnose       diagnostica a VM
+status         mostra status da VM
+ssh            conecta via SSH
+host-share     gerencia compartilhamento do host
+config         entra em configuração da VM
+optimize       otimiza a VM
+debug          ativa/desativa debug da sessão (on|off|status)
+back           volta
+exit           sai
+
+Exemplos:
+
+status
+start --headless
+start --debug
+diagnose -T -L 80
+ssh
+EOF
+            ;;
+        vm_config)
+            cat << 'EOF'
+Configuração da VM:
+
+show     mostra configuração amigável
+--raw    mostra configuração técnica (QEMU_*)
+list     lista chaves configuráveis
+get      consulta um valor (ex.: get memory)
+set      altera um valor (ex.: set memory 4096)
+path     mostra caminho da configuração
+reset    redefine configuração da VM
+help     mostra ajuda do vm config
+back     volta
+exit     sai
+
+Exemplos:
+
+show
+--raw
+list
+get memory
+set memory 8192
+set memory=8192 cpus=4 fullscreen=off
+path
+reset
+EOF
+            ;;
+        vm_host_share)
+            cat << 'EOF'
+Compartilhamento do host:
+
+list     lista compartilhamentos do host
+back     volta
+exit     sai
+
+Exemplos:
+
+list
+EOF
+            ;;
+        host)
+            cat << 'EOF'
+Instalação nativa no host:
+
+install  inicia a instalação nativa
+back     volta
+exit     sai
+
+Exemplos:
+
+install
+EOF
+            ;;
+    esac
+}
+
+is_sensitive_command() {
+    local -a cmd=("$@")
+    local i
+
+    if [[ ${#cmd[@]} -eq 0 ]]; then
+        return 1
+    fi
+
+    case "${cmd[0]}" in
+        uninstall)
+            return 0
+            ;;
+        host)
+            if [[ "${cmd[1]:-}" == 'install' ]] || [[ "${cmd[1]:-}" == '-i' ]]; then
+                return 0
+            fi
+            ;;
+        vm)
+            if [[ "${cmd[1]:-}" == 'remove' ]] || [[ "${cmd[1]:-}" == '-r' ]] || [[ "${cmd[1]:-}" == 'delete' ]]; then
+                return 0
+            fi
+            if [[ "${cmd[1]:-}" == 'config' ]] && [[ "${cmd[2]:-}" == 'reset' ]]; then
+                return 0
+            fi
+            ;;
+        self-update|update)
+            for ((i=1; i<${#cmd[@]}; i++)); do
+                if [[ "${cmd[$i]}" == '--force' ]] || [[ "${cmd[$i]}" == '-f' ]]; then
+                    return 1
+                fi
+            done
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+show_sensitive_notice() {
+    local -a cmd=("$@")
+
+    if [[ "${cmd[0]}" == 'vm' ]] && [[ "${cmd[1]:-}" == 'config' ]] && [[ "${cmd[2]:-}" == 'reset' ]]; then
+        echo 'Esta ação pode redefinir configurações da VM.'
+        echo 'Nenhuma configuração pessoal deve ser apagada sem confirmação explícita.'
+        return 0
+    fi
+
+    if [[ "${cmd[0]}" == 'host' ]] && ([[ "${cmd[1]:-}" == 'install' ]] || [[ "${cmd[1]:-}" == '-i' ]]); then
+        echo 'Esta ação iniciará a instalação nativa no host.'
+        echo 'Ela pode instalar pacotes e alterar arquivos do sistema.'
+        return 0
+    fi
+
+    if [[ "${cmd[0]}" == 'vm' ]] && ([[ "${cmd[1]:-}" == 'remove' ]] || [[ "${cmd[1]:-}" == '-r' ]] || [[ "${cmd[1]:-}" == 'delete' ]]); then
+        echo 'Esta ação pode remover arquivos da VM.'
+        return 0
+    fi
+
+    if [[ "${cmd[0]}" == 'uninstall' ]]; then
+        echo 'Esta ação pode desinstalar a CLI local.'
+        return 0
+    fi
+
+    if [[ "${cmd[0]}" == 'self-update' ]]; then
+        echo 'Esta ação atualiza a CLI e altera arquivos locais da instalação.'
+        return 0
+    fi
+
+    echo 'Esta ação altera estado persistente.'
+}
+
+confirm_sensitive_command() {
+    local -a cmd=("$@")
+    local reply
+
+    echo
+    echo 'Comando equivalente:'
+    echo "a11yctl ${cmd[*]}"
+    echo
+
+    show_sensitive_notice "${cmd[@]}"
+    printf 'Continuar? [s/N] '
+    read -r reply || true
+
+    reply="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+    case "$reply" in
+        s|sim|y|yes)
+            return 0
+            ;;
+        *)
+            echo 'Ação cancelada.'
+            return 1
+            ;;
+    esac
+}
+
+list_context_commands() {
+    local context="$1"
+    case "$context" in
+        root)
+            printf '%s\n' help '?' version self-update update migrate migrate-state uninstall vm host status debug clear exit quit
+            ;;
+        vm)
+            printf '%s\n' help '?' install version check-update list start stop close remove delete diagnose status ssh host-share config optimize debug back exit quit clear
+            ;;
+        vm_config)
+            printf '%s\n' help '?' show --raw list get set path reset debug back exit quit clear
+            ;;
+        vm_host_share)
+            printf '%s\n' help '?' list debug back exit quit clear
+            ;;
+        host)
+            printf '%s\n' help '?' install debug back exit quit clear
+            ;;
+    esac
+}
+
+suggest_command() {
+    local context="$1"
+    local typed="$2"
+    local cmd
+    local -a suggestions=()
+
+    while IFS= read -r cmd; do
+        [[ -z "$cmd" ]] && continue
+        if [[ "$cmd" == "$typed"* ]] || [[ "$cmd" == *"$typed"* ]]; then
+            suggestions+=("$cmd")
+        fi
+    done < <(list_context_commands "$context")
+
+    if [[ ${#suggestions[@]} -gt 0 ]]; then
+        echo
+        echo 'Talvez você quis dizer:'
+        local suggestion
+        for suggestion in "${suggestions[@]}"; do
+            echo "$suggestion"
+        done
+    fi
+}
+
+is_context_command() {
+    local context="$1"
+    local typed="$2"
+    local cmd
+
+    [[ -z "$typed" ]] && return 1
+
+    while IFS= read -r cmd; do
+        [[ -z "$cmd" ]] && continue
+        if [[ "$cmd" == "$typed" ]]; then
+            return 0
+        fi
+    done < <(list_context_commands "$context")
+
+    return 1
+}
+
+dispatch_host_command() {
+    local command="${1:-}"
+    shift || true
+
+    case "$command" in
+        help|-h|--help)
+            show_help
+            ;;
+        version|--version)
+            invoke_version_command "$@"
+            ;;
+        self-update|update)
+            invoke_self_update "$@"
+            ;;
+        migrate|migrate-state)
+            invoke_migrate_state_command "$@"
+            ;;
+        uninstall)
+            invoke_uninstall "$@"
+            ;;
+        vm)
+            invoke_vm_command "$@"
+            ;;
+        host)
+            invoke_host_command_main "$@"
+            ;;
+        '')
+            show_help
+            return 0
+            ;;
+        *)
+            ea11_error "Comando desconhecido no contexto host: $command"
+            show_help
+            return 1
+            ;;
+    esac
+}
+
+dispatch_command() {
+    local context="$1"
+    shift || true
+    local command="${1:-}"
+    shift || true
+
+    if [[ "$context" == 'guest' ]]; then
+        case "$command" in
+            help|-h|--help)
+                show_help
+                ;;
+            version|--version)
+                invoke_version_command "$@"
+                ;;
+            share|-S)
+                invoke_guest_share_command "$@"
+                ;;
+            '')
+                show_help
+                return 0
+                ;;
+            *)
+                ea11_error "Comando desconhecido no contexto guest: $command"
+                show_help
+                return 1
+                ;;
+        esac
+        return 0
+    fi
+
+    dispatch_host_command "$command" "$@"
+}
+
+start_interactive_shell() {
+    local context='root'
+    local line
+
+    echo 'a11yctl - modo interativo'
+    echo
+    echo 'Digite help para ver comandos.'
+    echo 'Digite exit para sair.'
+    echo
+
+    while true; do
+        local prompt
+        prompt="$(interactive_prompt "$context")"
+        if ! IFS= read -r -p "$prompt" line; then
+            echo
+            break
+        fi
+
+        if ! parse_interactive_line "$line"; then
+            continue
+        fi
+
+        normalize_aliases "$context" "${INTERACTIVE_TOKENS[@]}"
+        resolve_context_command "$context" "${NORMALIZED_TOKENS[@]}"
+
+        case "$RESOLVE_ACTION" in
+            noop)
+                continue
+                ;;
+            help)
+                show_context_help "$context"
+                continue
+                ;;
+            clear)
+                clear 2>/dev/null || printf '\033c'
+                continue
+                ;;
+            exit)
+                break
+                ;;
+            back)
+                if [[ "$context" == 'root' ]]; then
+                    echo 'Você já está no contexto raiz.'
+                else
+                    context="$RESOLVE_NEXT_CONTEXT"
+                fi
+                continue
+                ;;
+            enter_context)
+                context="$RESOLVE_NEXT_CONTEXT"
+                continue
+                ;;
+            status_unavailable)
+                echo 'Não há status específico neste contexto.'
+                continue
+                ;;
+            debug_toggle)
+                set_interactive_debug_mode "${NORMALIZED_TOKENS[1]:-status}"
+                continue
+                ;;
+        esac
+
+        if [[ ${#RESOLVED_COMMAND[@]} -eq 0 ]]; then
+            continue
+        fi
+
+        if is_sensitive_command "${RESOLVED_COMMAND[@]}"; then
+            if ! confirm_sensitive_command "${RESOLVED_COMMAND[@]}"; then
+                continue
+            fi
+        fi
+
+        if ! dispatch_host_command "${RESOLVED_COMMAND[@]}"; then
+            if ! is_context_command "$context" "${NORMALIZED_TOKENS[0]}"; then
+                echo
+                echo "Comando desconhecido: ${NORMALIZED_TOKENS[0]}"
+                suggest_command "$context" "${NORMALIZED_TOKENS[0]}"
+            fi
+            echo
+            echo 'Digite help para ver os comandos disponíveis.'
+        fi
+    done
+}
+
+#################################################################################
+# Help
+#################################################################################
+
+show_help() {
+    local context
+    context=$(get_execution_context)
+    
+    if [[ "$context" == "guest" ]]; then
+        show_help_guest
+    else
+        show_help_host
+    fi
+}
+
+show_help_host() {
+    cat << 'EOF'
+a11yctl - CLI do projeto a11yctl [HOST]
+
+Uso:
+  a11yctl help|-h|--help
+  a11yctl version|--version [-c|--check-update]
+  a11yctl self-update|update [-f|--force]
+    a11yctl migrate|migrate-state
+  a11yctl uninstall [--purge-state] [--yes] [--force-repo-path]
+  
+  a11yctl vm install|-i [args-do-install-release-vm.sh]
+  a11yctl vm version|-V [-n|--name VM]
+  a11yctl vm check-update|-U [-n|--name VM]
+  a11yctl vm list|-l
+    a11yctl vm start|-s [-n|--name VM] [-h|--headless] [--debug]
+  a11yctl vm stop|-S [-n|--name VM] [-f|--force]
+  a11yctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS]
+  a11yctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
+  a11yctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N]
+  a11yctl vm status|-q [-n|--name VM]
+  a11yctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
+  a11yctl vm host-share|-H list
+    a11yctl vm config [show|--raw|list|path|reset|help]
+    a11yctl vm config get CHAVE [--raw]
+    a11yctl vm config set CHAVE VALOR
+    a11yctl vm config set CHAVE=VALOR [CHAVE=VALOR ...]
+  a11yctl vm optimize
+  
+  a11yctl host install|-i (Instalação nativa Debian/Ubuntu)
+
+Defaults:
+  VM: debian-a11y
+  SSH user: a11ydevs
+  SSH port: 2222
+    Debug: use EA11_DEBUG=1 ou passe --debug em vm start
+
+QEMU:
+    Imagem de sistema: ~/.a11yctl/debian-a11ydevs.qcow2
+    Disco de dados: ~/.a11yctl/<vm>-home.qcow2 (montado em /home na VM)
+
+Compatibilidade temporaria:
+    ea11ctl continua disponivel como wrapper com aviso de depreciacao.
+EOF
+}
+
+show_help_guest() {
+    cat << 'EOF'
+a11yctl - CLI do projeto a11yctl [GUEST]
+
+Uso (dentro da VM Debian):
+  a11yctl help|-h|--help
+  a11yctl version|--version
+  a11yctl share list|-l          Lista compartilhamentos montados
+  a11yctl share config|-c        Mostra configuracao de compartilhamento
+  a11yctl share mount|-m         Monta pasta do host
+  a11yctl share umount|-u        Desmonta pasta do host
+
+Voce esta dentro da VM. Para gerenciar VMs, use a11yctl no HOST.
+EOF
+}
+
+#################################################################################
+# Main
+#################################################################################
+
+
+main() {
+    local context
+    context=$(get_execution_context)
+    local command="${1:-}"
+    if [[ "$context" == 'host' ]] && [[ -z "$command" ]]; then
+        start_interactive_shell
+        return 0
+    fi
+
+    dispatch_command "$context" "$@"
+    return $?
+}
+
+# Executar main com tratamento de erro
+main "$@"
+exit_code=$?
+# Só sair com erro se NÃO for modo interativo
+if [[ -n "${1:-}" ]] && (( exit_code != 0 )); then
+    exit $exit_code
+fi

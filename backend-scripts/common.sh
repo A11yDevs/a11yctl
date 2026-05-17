@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+EA11_HOME="${HOME}/.a11yctl"
+EA11_SCRIPTS_DIR="${EA11_HOME}/scripts"
+EA11_QEMU_STATE_DIR="${EA11_HOME}/qemu"
+EA11_LOG_DIR="${EA11_HOME}/logs"
+EA11_QEMU_SHARE_CONFIG="${EA11_QEMU_STATE_DIR}/share.env"
+EA11_QEMU_RUNTIME_CONFIG="${EA11_QEMU_STATE_DIR}/config.env"
+EA11_DEFAULT_VM_NAME="debian-a11y"
+EA11_DEFAULT_SSH_USER="a11ydevs"
+EA11_DEFAULT_SSH_PORT="2222"
+EA11_DEFAULT_SYSTEM_IMAGE="${EA11_HOME}/debian-a11ydevs.qcow2"
+EA11_DEFAULT_RELEASE_OWNER="A11yDevs"
+EA11_DEFAULT_RELEASE_REPO="a11yctl"
+EA11_DEFAULT_RELEASE_TAG="latest"
+EA11_DEFAULT_RELEASE_ASSET="debian-a11ydevs.qcow2"
+EA11_DEFAULT_RELEASE_BASE_URL="https://argmap.inf.ufg.br/a11ydevs"
+
+ea11_backend_info() {
+    printf '[a11yctl] %s\n' "$*" >&2
+}
+
+ea11_backend_warn() {
+    printf '[a11yctl] %s\n' "$*" >&2
+}
+
+ea11_backend_error() {
+    printf '[a11yctl] %s\n' "$*" >&2
+}
+
+ea11_backend_die() {
+    ea11_backend_error "$*"
+    exit 1
+}
+
+ea11_backend_ensure_dirs() {
+    mkdir -p "$EA11_HOME" "$EA11_SCRIPTS_DIR" "$EA11_QEMU_STATE_DIR" "$EA11_LOG_DIR"
+}
+
+ea11_backend_has_flag() {
+    local needle="$1"
+    shift
+    local arg
+    for arg in "$@"; do
+        if [[ "$arg" == "$needle" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+ea11_backend_option_value() {
+    local long_name="$1"
+    local short_name="$2"
+    shift 2
+
+    local current
+    while [[ $# -gt 0 ]]; do
+        current="$1"
+        shift
+
+        if [[ "$current" == "$long_name" || "$current" == "$short_name" ]]; then
+            if [[ $# -eq 0 ]]; then
+                ea11_backend_die "Opcao $current requer um valor."
+            fi
+            printf '%s\n' "$1"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+ea11_backend_tail_lines() {
+    local file_path="$1"
+    local line_count="$2"
+    if [[ -f "$file_path" ]]; then
+        tail -n "$line_count" "$file_path"
+    else
+        ea11_backend_warn "Arquivo nao encontrado: $file_path"
+    fi
+}
+
+ea11_backend_extract_extra_args() {
+    local found_separator=0
+    local arg
+    for arg in "$@"; do
+        if [[ $found_separator -eq 1 ]]; then
+            printf '%s\n' "$arg"
+            continue
+        fi
+        if [[ "$arg" == "--" ]]; then
+            found_separator=1
+        fi
+    done
+}
+
+ea11_backend_require_command() {
+    local command_name="$1"
+    command -v "$command_name" >/dev/null 2>&1 || ea11_backend_die "Comando requerido nao encontrado: $command_name"
+}
+
+ea11_backend_release_owner() {
+    ea11_backend_option_value --owner '' "$@" || printf '%s\n' "$EA11_DEFAULT_RELEASE_OWNER"
+}
+
+ea11_backend_release_repo() {
+    ea11_backend_option_value --repo '' "$@" || printf '%s\n' "$EA11_DEFAULT_RELEASE_REPO"
+}
+
+ea11_backend_release_tag() {
+    ea11_backend_option_value --tag '' "$@" || printf '%s\n' "$EA11_DEFAULT_RELEASE_TAG"
+}
+
+ea11_backend_release_base_url() {
+    local configured
+    configured=$(ea11_backend_option_value --release-base-url '' "$@" || true)
+    if [[ -n "$configured" ]]; then
+        printf '%s\n' "$configured"
+        return 0
+    fi
+
+    if [[ -n "${EA11_RELEASE_BASE_URL:-}" ]]; then
+        printf '%s\n' "$EA11_RELEASE_BASE_URL"
+        return 0
+    fi
+
+    printf '%s\n' "$EA11_DEFAULT_RELEASE_BASE_URL"
+}
+
+ea11_backend_download_force() {
+    if ea11_backend_has_flag --force-download "$@" || ea11_backend_has_flag --force "$@" || ea11_backend_has_flag -f "$@"; then
+        return 0
+    fi
+    return 1
+}
+
+ea11_backend_release_asset_url() {
+    local base_url="$1"
+    local owner="$2"
+    local repo="$3"
+    local tag="$4"
+    local asset_name="$5"
+
+    if [[ -n "$base_url" ]]; then
+        base_url="${base_url%/}"
+        if [[ "$tag" == "latest" ]]; then
+            printf '%s/latest/%s\n' "$base_url" "$asset_name"
+        else
+            printf '%s/%s/%s\n' "$base_url" "$tag" "$asset_name"
+        fi
+        return 0
+    fi
+
+    if [[ "$tag" == "latest" ]]; then
+        printf 'https://github.com/%s/%s/releases/latest/download/%s\n' "$owner" "$repo" "$asset_name"
+    else
+        printf 'https://github.com/%s/%s/releases/download/%s/%s\n' "$owner" "$repo" "$tag" "$asset_name"
+    fi
+}
+
+ea11_backend_download_file() {
+    local url="$1"
+    local destination="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL --retry 3 --retry-delay 2 "$url" -o "$destination"
+        return 0
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -O "$destination" "$url"
+        return 0
+    fi
+
+    ea11_backend_die 'Nem curl nem wget estao disponiveis para download.'
+}
+
+ea11_backend_download_release_asset() {
+    local owner="$1"
+    local repo="$2"
+    local tag="$3"
+    local asset_name="$4"
+    local destination="$5"
+    local base_url="${6:-}"
+
+    local tmp_file
+    local mirror_url github_url downloaded
+    mirror_url=$(ea11_backend_release_asset_url "$base_url" "$owner" "$repo" "$tag" "$asset_name")
+    github_url=$(ea11_backend_release_asset_url '' "$owner" "$repo" "$tag" "$asset_name")
+    tmp_file="${destination}.download"
+    downloaded=0
+
+    if [[ -n "$base_url" ]]; then
+        ea11_backend_info "Baixando asset ${asset_name} (${tag}) via mirror: ${mirror_url}"
+        if ea11_backend_download_file "$mirror_url" "$tmp_file"; then
+            downloaded=1
+        else
+            rm -f "$tmp_file"
+            ea11_backend_warn "Falha no mirror; tentando GitHub: ${github_url}"
+        fi
+    fi
+
+    if [[ $downloaded -eq 0 ]]; then
+        ea11_backend_info "Baixando asset ${asset_name} (${tag}) via GitHub..."
+        ea11_backend_download_file "$github_url" "$tmp_file" || {
+            rm -f "$tmp_file"
+            ea11_backend_die "Falha ao baixar asset da release: $github_url"
+        }
+    fi
+
+    mv "$tmp_file" "$destination"
+}
+
+ea11_backend_release_latest_tag() {
+    local owner="$1"
+    local repo="$2"
+    local api_url
+    local body
+
+    api_url="https://api.github.com/repos/${owner}/${repo}/releases/latest"
+    body=""
+
+    if command -v curl >/dev/null 2>&1; then
+        body=$(curl -fsSL "$api_url" 2>/dev/null || true)
+    elif command -v wget >/dev/null 2>&1; then
+        body=$(wget -qO- "$api_url" 2>/dev/null || true)
+    fi
+
+    if [[ -n "$body" ]]; then
+        printf '%s\n' "$body" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+        return 0
+    fi
+
+    return 1
+}
+
+ea11_backend_resolve_release_tag() {
+    local owner="$1"
+    local repo="$2"
+    local tag="$3"
+
+    if [[ "$tag" != "latest" ]]; then
+        printf '%s\n' "$tag"
+        return 0
+    fi
+
+    local latest_tag
+    latest_tag=$(ea11_backend_release_latest_tag "$owner" "$repo" || true)
+    if [[ -n "$latest_tag" ]]; then
+        printf '%s\n' "$latest_tag"
+        return 0
+    fi
+
+    printf '%s\n' "latest"
+}
