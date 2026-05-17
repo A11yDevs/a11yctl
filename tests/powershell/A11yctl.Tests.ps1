@@ -12,25 +12,30 @@ function Invoke-ScriptWithHome {
         [Parameter(Mandatory = $true)][string]$HomePath
     )
 
-    $oldHome = $env:HOME
-    $oldUserProfile = $env:USERPROFILE
+    $pwsh = if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' }
+    $allArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ScriptPath) + $Arguments
 
-    try {
-        $env:HOME = $HomePath
-        $env:USERPROFILE = $HomePath
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $pwsh
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
 
-        $pwsh = if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' }
-        $allArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ScriptPath) + $Arguments
-        $output = & $pwsh @allArgs 2>&1
-
-        return [PSCustomObject]@{
-            ExitCode = $LASTEXITCODE
-            Output = ($output | Out-String)
-        }
+    foreach ($arg in $allArgs) {
+        [void]$psi.ArgumentList.Add($arg)
     }
-    finally {
-        $env:HOME = $oldHome
-        $env:USERPROFILE = $oldUserProfile
+
+    $psi.Environment['HOME'] = $HomePath
+    $psi.Environment['USERPROFILE'] = $HomePath
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+
+    return [PSCustomObject]@{
+        ExitCode = $proc.ExitCode
+        Output = ($stdout + [Environment]::NewLine + $stderr)
     }
 }
 
