@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  bash-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare scripts
+        run: chmod +x a11yctl ea11ctl install.sh tests/bash/run-tests.sh backend-scripts/common.sh backend-scripts/qemu.sh backend-scripts/host.sh
+
+      - name: Bash syntax check
+        run: bash -n a11yctl ea11ctl install.sh backend-scripts/common.sh backend-scripts/qemu.sh backend-scripts/host.sh
+
+      - name: Run Bash tests
+        run: tests/bash/run-tests.sh
+
+  powershell-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          $module = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1
+          if (-not $module -or $module.Version -lt [Version]'5.0.0') {
+            Install-Module -Name Pester -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          Invoke-Pester -Path tests/powershell -CI -Output Detailed

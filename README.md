@@ -105,3 +105,25 @@ O self-update baixa os arquivos diretamente da raiz de A11yDevs/a11yctl e atuali
 ## Compatibilidade com ea11ctl
 
 Durante esta fase de migracao, ea11ctl continua funcional apenas como wrapper de compatibilidade. O comportamento real da CLI esta em a11yctl.ps1 (PowerShell) e a11yctl (Bash).
+
+## Testes automatizados
+
+O repositório inclui uma bateria mínima de testes para Bash e PowerShell, além de CI no GitHub Actions para Linux e Windows.
+
+Execução local no macOS:
+
+```bash
+tests/bash/run-tests.sh
+```
+
+Para testes PowerShell (Pester), é necessário ter pwsh instalado localmente:
+
+```bash
+pwsh -NoProfile -Command "Invoke-Pester -Path tests/powershell -CI -Output Detailed"
+```
+
+CI/CD no GitHub:
+
+- Workflow: .github/workflows/tests.yml
+- Bash: ubuntu-latest
+- PowerShell (Pester): ubuntu-latest e windows-latest
