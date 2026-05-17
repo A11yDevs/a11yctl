@@ -42,9 +42,9 @@ function Invoke-ScriptWithHome {
 Describe 'a11yctl PowerShell minimum tests' {
     It 'migrate-state copia legado sem sobrescrever e preserva origem' {
         $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
-        $home = Join-Path $tmpRoot 'home'
-        $legacy = Join-Path $home '.emacs-a11y-vm'
-        $target = Join-Path $home '.a11yctl'
+        $testHome = Join-Path $tmpRoot 'home'
+        $legacy = Join-Path $testHome '.emacs-a11y-vm'
+        $target = Join-Path $testHome '.a11yctl'
 
         New-Item -ItemType Directory -Path (Join-Path $legacy 'qemu') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $target 'qemu') -Force | Out-Null
@@ -53,7 +53,7 @@ Describe 'a11yctl PowerShell minimum tests' {
         Set-Content -Path (Join-Path $target 'debian-a11ydevs.qcow2') -Value 'current-disk' -NoNewline
         Set-Content -Path (Join-Path $legacy 'qemu/debian-a11y.json') -Value '{"name":"debian-a11y"}' -NoNewline
 
-        $result = Invoke-ScriptWithHome -ScriptPath $a11yctlScript -Arguments @('migrate-state', '--quiet') -HomePath $home
+        $result = Invoke-ScriptWithHome -ScriptPath $a11yctlScript -Arguments @('migrate-state', '--quiet') -HomePath $testHome
 
         $result.ExitCode | Should -Be 0
         (Get-Content -Path (Join-Path $target 'debian-a11ydevs.qcow2') -Raw) | Should -Be 'current-disk'
@@ -66,10 +66,10 @@ Describe 'a11yctl PowerShell minimum tests' {
 
     It 'ea11ctl.ps1 avisa depreciacao e delega para a11yctl' {
         $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
-        $home = Join-Path $tmpRoot 'home'
-        New-Item -ItemType Directory -Path $home -Force | Out-Null
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
 
-        $result = Invoke-ScriptWithHome -ScriptPath $legacyWrapperScript -Arguments @('version') -HomePath $home
+        $result = Invoke-ScriptWithHome -ScriptPath $legacyWrapperScript -Arguments @('version') -HomePath $testHome
 
         $result.ExitCode | Should -Be 0
         $result.Output | Should -Match 'ea11ctl.*obsoleto'
@@ -80,10 +80,10 @@ Describe 'a11yctl PowerShell minimum tests' {
 
     It 'migrate-state sem legado nao falha' {
         $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
-        $home = Join-Path $tmpRoot 'home'
-        New-Item -ItemType Directory -Path $home -Force | Out-Null
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
 
-        $result = Invoke-ScriptWithHome -ScriptPath $a11yctlScript -Arguments @('migrate-state', '--quiet') -HomePath $home
+        $result = Invoke-ScriptWithHome -ScriptPath $a11yctlScript -Arguments @('migrate-state', '--quiet') -HomePath $testHome
 
         $result.ExitCode | Should -Be 0
 
