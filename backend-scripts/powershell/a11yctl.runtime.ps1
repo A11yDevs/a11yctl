@@ -128,6 +128,8 @@ Uso:
   a11yctl uninstall [--purge-state] [--yes] [--force-repo-path]
   
   a11yctl vm install|-i
+    a11yctl vm version|-V [-n|--name VM] [-u|--user USER]
+    a11yctl vm check-update|-U [-n|--name VM] [-u|--user USER]
   a11yctl vm list|-l
     a11yctl vm start|-s [-n|--name VM] [-h|--headless] [--debug]
   a11yctl vm stop|-S [-n|--name VM] [-f|--force]
@@ -1450,6 +1452,131 @@ function Load-QemuState {
     }
 
     return ($raw | ConvertFrom-Json)
+}
+
+function Resolve-GitHubLatestReleaseTag {
+    param(
+        [string]$Owner = $EA11CTL_OWNER,
+        [string]$Repo = $EA11CTL_REPO
+    )
+
+    $url = "https://api.github.com/repos/$Owner/$Repo/releases/latest"
+    try {
+        $response = Invoke-WebRequest -Uri $url -Headers (Get-GitHubApiHeaders) -UseBasicParsing
+        $obj = $response.Content | ConvertFrom-Json
+        if ($obj -and -not [string]::IsNullOrWhiteSpace([string]$obj.tag_name)) {
+            return [string]$obj.tag_name
+        }
+    }
+    catch {
+    }
+
+    return 'latest'
+}
+
+function Get-QemuGuestReleaseVersion {
+    param(
+        [int]$SshPort,
+        [string]$SshUser = 'a11ydevs'
+    )
+
+    if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
+        return $null
+    }
+
+    $knownHostsPath = Join-Path (Join-Path (Get-HomeDirectoryPath) '.ssh') 'known_hosts'
+    $cmd = 'cat /etc/emacs-a11y-release 2>/dev/null || cat /etc/motd 2>/dev/null | head -n 1'
+
+    try {
+        $out = & ssh -o BatchMode=yes -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$knownHostsPath" -p $SshPort "$SshUser@localhost" $cmd 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $value = ([string]$out).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($value)) {
+                return $value
+            }
+        }
+    }
+    catch {
+    }
+
+    return $null
+}
+
+function Get-QemuVMVersionInfo {
+    param([string[]]$Tokens)
+
+    $vmName = Get-VMName -Tokens $Tokens
+    $sshUser = Get-OptionValue -Tokens $Tokens -Names @('--user', '-u') -Default 'a11ydevs'
+    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner') -Default $EA11CTL_OWNER
+    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo') -Default $EA11CTL_REPO
+
+    $state = Load-QemuState -VMName $vmName
+
+    $localTag = 'unknown'
+    if ($state -and $state.imageTag) {
+        $localTag = [string]$state.imageTag
+    }
+
+    $latestTag = Resolve-GitHubLatestReleaseTag -Owner $owner -Repo $repo
+
+    if ($state -and $state.pid -and $state.sshPort) {
+        $vmPid = [int]$state.pid
+        if ($vmPid -gt 0 -and (Get-ProcessByIdSafe -ProcessId $vmPid)) {
+            $guestTag = Get-QemuGuestReleaseVersion -SshPort ([int]$state.sshPort) -SshUser $sshUser
+            if (-not [string]::IsNullOrWhiteSpace($guestTag)) {
+                $localTag = $guestTag
+            }
+        }
+    }
+
+    return @{
+        vmName = $vmName
+        localTag = $localTag
+        latestTag = $latestTag
+    }
+}
+
+function Invoke-QemuVMVersion {
+    param([string[]]$Tokens)
+
+    $info = Get-QemuVMVersionInfo -Tokens $Tokens
+    Write-Host 'backend=qemu'
+    Write-Host "vm=$($info.vmName)"
+    Write-Host "local_tag=$($info.localTag)"
+    Write-Host "latest_tag=$($info.latestTag)"
+}
+
+function Invoke-QemuVMCheckUpdate {
+    param([string[]]$Tokens)
+
+    $info = Get-QemuVMVersionInfo -Tokens $Tokens
+    Write-Host 'backend=qemu'
+    Write-Host "vm=$($info.vmName)"
+    Write-Host "local_tag=$($info.localTag)"
+    Write-Host "latest_tag=$($info.latestTag)"
+
+    if ($info.localTag -eq 'unknown') {
+        Write-Host 'update_status=unknown-local'
+        Write-EA11Warn 'Tag local da imagem nao registrada.'
+        Write-EA11Info 'Atualize para registrar a tag local: a11yctl vm install --force-download'
+        return
+    }
+
+    if ($info.latestTag -eq 'latest') {
+        Write-Host 'update_status=unknown-remote'
+        Write-EA11Warn 'Nao foi possivel consultar a release mais nova no GitHub agora.'
+        return
+    }
+
+    if ($info.localTag -eq $info.latestTag) {
+        Write-Host 'update_status=up-to-date'
+        Write-EA11Info "VM QEMU ja esta na versao mais recente ($($info.localTag))."
+    }
+    else {
+        Write-Host 'update_status=update-available'
+        Write-EA11Warn "Nova release disponivel: $($info.latestTag) (local: $($info.localTag))."
+        Write-EA11Info 'Atualize com: a11yctl vm install --force-download'
+    }
 }
 
 function Save-QemuState {
@@ -3380,6 +3507,12 @@ function Invoke-VMCommand {
         { $_ -in @('install', '-i') } {
             Invoke-VMInstall -InstallArgs $rest
         }
+        { $_ -in @('version', '-V') } {
+            Invoke-QemuVMVersion -Tokens $rest
+        }
+        { $_ -in @('check-update', '-U') } {
+            Invoke-QemuVMCheckUpdate -Tokens $rest
+        }
         { $_ -in @('list', '-l') } {
             Invoke-QemuVMList
         }
@@ -3478,6 +3611,8 @@ function Show-InteractiveContextHelp {
 Comandos de VM:
 
 install        instala a VM
+version        mostra a versão da VM
+check-update   verifica atualização da VM
 list           lista VMs
 start          inicia a VM
 stop           para a VM
@@ -3590,7 +3725,7 @@ function Get-ContextCommandList {
     param([string]$Context)
 
     switch ($Context) {
-        'vm' { return @('help','?','install','list','start','stop','close','remove','delete','diagnose','status','ssh','host-share','config','optimize','logs','debug','back','exit','quit','clear') }
+        'vm' { return @('help','?','install','version','check-update','list','start','stop','close','remove','delete','diagnose','status','ssh','host-share','config','optimize','logs','debug','back','exit','quit','clear') }
         'vm_config' { return @('help','?','show','--raw','list','get','set','path','reset','debug','back','exit','quit','clear') }
         'vm_host_share' { return @('help','?','list','debug','back','exit','quit','clear') }
         'host' { return @('help','?','install','debug','back','exit','quit','clear') }
@@ -3751,6 +3886,11 @@ function Resolve-ContextCommand {
             if ($first -eq 'host-share' -and $Tokens.Length -eq 1) {
                 $result.Action = 'enter_context'
                 $result.NextContext = 'vm_host_share'
+                return $result
+            }
+
+            if ($first -in @('version','-V','check-update','-U')) {
+                $result.Command = @('vm') + @($Tokens)
                 return $result
             }
 
