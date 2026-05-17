@@ -532,6 +532,23 @@ EOF
     rm -rf "$tmp"
 }
 
+run_vm_list_reject_backend_option_test() {
+    local tmp home output
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    home="$tmp/home"
+    mkdir -p "$home"
+
+    set +e
+    output="$(HOME="$home" USERPROFILE="$home" bash "$REPO_DIR/a11yctl" vm list --backend qemu 2>&1)"
+    local status=$?
+    set -e
+
+    assert_not_equals "$status" "0" "vm list com --backend falha"
+    assert_contains "$output" "opcao de backend foi removida" "vm list com --backend informa erro correto"
+
+    rm -rf "$tmp"
+}
+
 run_migrate_conflict_test
 run_wrapper_test
 run_no_legacy_test
@@ -544,6 +561,7 @@ run_self_update_no_force_remote_newer_test
 run_vm_list_dispatch_test
 run_vm_install_dispatch_args_test
 run_vm_backend_error_propagation_test
+run_vm_list_reject_backend_option_test
 
 printf '\nResumo: %d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 

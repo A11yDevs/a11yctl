@@ -170,4 +170,21 @@ Describe 'a11yctl PowerShell minimum tests' {
 
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    It 'vm list com estado registrado exibe VM como stopped' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        $qemuStateDir = Join-Path $testHome '.a11yctl/qemu'
+        New-Item -ItemType Directory -Path $qemuStateDir -Force | Out-Null
+
+        $statePath = Join-Path $qemuStateDir 'demo.json'
+        '{"name":"demo","sshPort":2222,"pid":0}' | Set-Content -Path $statePath -NoNewline
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'list') -HomePath $testHome
+
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
+        $result.Output | Should -Match 'demo \(qemu\) - stopped - ssh:2222'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
