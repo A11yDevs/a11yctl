@@ -64,7 +64,7 @@ Describe 'a11yctl PowerShell minimum tests' {
 
         $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('migrate-state', '--quiet') -HomePath $testHome
 
-        $result.ExitCode | Should -Be 0
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
         (Get-Content -Path (Join-Path $target 'debian-a11ydevs.qcow2') -Raw) | Should -Be 'current-disk'
         Test-Path (Join-Path $target 'debian-a11ydevs.migrated.qcow2') | Should -BeTrue
         (Get-Content -Path (Join-Path $target 'debian-a11ydevs.migrated.qcow2') -Raw) | Should -Be 'legacy-disk'
@@ -80,7 +80,7 @@ Describe 'a11yctl PowerShell minimum tests' {
 
         $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'ea11ctl.ps1') -Arguments @('version') -HomePath $testHome
 
-        $result.ExitCode | Should -Be 0
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
         $result.Output | Should -Match 'ea11ctl.*obsoleto'
         $result.Output | Should -Match 'a11yctl v'
 
@@ -94,7 +94,7 @@ Describe 'a11yctl PowerShell minimum tests' {
 
         $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('migrate-state', '--quiet') -HomePath $testHome
 
-        $result.ExitCode | Should -Be 0
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
 
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
