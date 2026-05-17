@@ -549,6 +549,68 @@ run_vm_list_reject_backend_option_test() {
     rm -rf "$tmp"
 }
 
+run_vm_status_dispatch_test() {
+    local tmp sandbox home
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+
+    mkdir -p "$sandbox/backend-scripts" "$home"
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    chmod +x "$sandbox/a11yctl"
+
+    cat > "$sandbox/backend-scripts/common.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/host.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/qemu.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" > "${HOME}/vm-status-dispatch.log"
+exit 0
+EOF
+    chmod +x "$sandbox/backend-scripts/qemu.sh" "$sandbox/backend-scripts/host.sh"
+
+    HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm status -n demo >/dev/null 2>&1
+    assert_equals "$?" "0" "vm status retorna sucesso"
+    assert_equals "$(cat "$home/vm-status-dispatch.log")" "status -n demo" "vm status despacha argumentos corretamente"
+
+    rm -rf "$tmp"
+}
+
+run_vm_diagnose_dispatch_test() {
+    local tmp sandbox home
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+
+    mkdir -p "$sandbox/backend-scripts" "$home"
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    chmod +x "$sandbox/a11yctl"
+
+    cat > "$sandbox/backend-scripts/common.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/host.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/qemu.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" > "${HOME}/vm-diagnose-dispatch.log"
+exit 0
+EOF
+    chmod +x "$sandbox/backend-scripts/qemu.sh" "$sandbox/backend-scripts/host.sh"
+
+    HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm diagnose -n demo -L 20 >/dev/null 2>&1
+    assert_equals "$?" "0" "vm diagnose retorna sucesso"
+    assert_equals "$(cat "$home/vm-diagnose-dispatch.log")" "diagnose -n demo -L 20" "vm diagnose despacha argumentos corretamente"
+
+    rm -rf "$tmp"
+}
+
 run_migrate_conflict_test
 run_wrapper_test
 run_no_legacy_test
@@ -562,6 +624,8 @@ run_vm_list_dispatch_test
 run_vm_install_dispatch_args_test
 run_vm_backend_error_propagation_test
 run_vm_list_reject_backend_option_test
+run_vm_status_dispatch_test
+run_vm_diagnose_dispatch_test
 
 printf '\nResumo: %d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 
