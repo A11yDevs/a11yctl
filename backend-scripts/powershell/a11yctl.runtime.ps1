@@ -3937,9 +3937,9 @@ function Start-InteractiveShell {
 
 
 function Invoke-A11CtlRuntime {
-    param([string[]]$Args)
+    param([string[]]$CommandArgs)
 
-    if ($Args.Length -eq 0) {
+    if ($CommandArgs.Length -eq 0) {
         # Modo interativo: nunca sair com erro por comando inválido
         try {
             Start-InteractiveShell
@@ -3950,7 +3950,7 @@ function Invoke-A11CtlRuntime {
     }
 
     try {
-        Invoke-RootCommand -Tokens $Args
+        Invoke-RootCommand -Tokens $CommandArgs
     } catch {
         Write-EA11Error $_.Exception.Message
         Write-Host ''

@@ -245,7 +245,7 @@ if (Test-Path $legacyStateDir) {
     try {
         $runtimePath = Join-Path $installDir 'backend-scripts/powershell/a11yctl.runtime.ps1'
         . $runtimePath
-        Invoke-A11CtlRuntime -Args @('migrate-state', '--quiet')
+        Invoke-A11CtlRuntime -CommandArgs @('migrate-state', '--quiet')
         Write-Info 'Migracao automatica do estado legado concluida.'
     }
     catch {
