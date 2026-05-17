@@ -2305,7 +2305,8 @@ function Invoke-QemuVMStart {
             ArgumentList = $qemuArgs
             PassThru = $true
             RedirectStandardOutput = $debugLogFile
-            RedirectStandardError = $debugLogFile
+            # No Windows, Start-Process exige arquivos diferentes para stdout/stderr.
+            RedirectStandardError = $stderrLog
         }
     } else {
         $startParams = @{
