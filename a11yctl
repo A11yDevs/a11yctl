@@ -837,18 +837,36 @@ interactive_prompt() {
 }
 
 set_interactive_debug_mode() {
+    invoke_debug_command "$@"
+}
+
+get_debug_flag_file() {
+    printf '%s/qemu/debug.enabled\n' "$(get_ea11_state_directory)"
+}
+
+is_debug_enabled() {
+    [[ "${EA11_DEBUG:-0}" == '1' ]] || [[ -f "$(get_debug_flag_file)" ]]
+}
+
+invoke_debug_command() {
     local mode="${1:-status}"
+    local flag_file
+    flag_file="$(get_debug_flag_file)"
+
     case "$mode" in
         on|1|true)
+            mkdir -p "$(dirname "$flag_file")"
+            : > "$flag_file"
             export EA11_DEBUG=1
-            echo 'DEBUG ativado para esta sessão interativa.'
+            echo 'DEBUG ativado (sessão atual + persistente).'
             ;;
         off|0|false)
             unset EA11_DEBUG
-            echo 'DEBUG desativado para esta sessão interativa.'
+            rm -f "$flag_file"
+            echo 'DEBUG desativado (sessão atual + persistente).'
             ;;
         status)
-            if [[ "${EA11_DEBUG:-0}" == '1' ]]; then
+            if is_debug_enabled; then
                 echo 'DEBUG está ativado.'
             else
                 echo 'DEBUG está desativado.'
@@ -856,7 +874,8 @@ set_interactive_debug_mode() {
             ;;
         *)
             echo "Valor inválido para debug: $mode"
-            echo "Use: debug on | debug off | debug status"
+            echo "Use: a11yctl debug on | off | status"
+            return 1
             ;;
     esac
 }
@@ -1316,6 +1335,9 @@ dispatch_host_command() {
     case "$command" in
         help|-h|--help)
             show_help
+            ;;
+        debug)
+            invoke_debug_command "${1:-status}"
             ;;
         version|--version)
             invoke_version_command "$@"

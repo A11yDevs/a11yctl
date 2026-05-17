@@ -719,6 +719,33 @@ EOF
     rm -rf "$tmp"
 }
 
+run_debug_command_persistence_test() {
+    local tmp home output
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    home="$tmp/home"
+    mkdir -p "$home"
+
+    output="$(HOME="$home" USERPROFILE="$home" bash "$REPO_DIR/a11yctl" debug on 2>&1)"
+    assert_equals "$?" "0" "debug on retorna sucesso"
+    assert_contains "$output" "DEBUG ativado" "debug on informa ativacao"
+    assert_file_exists "$home/.a11yctl/qemu/debug.enabled" "debug on cria flag persistente"
+
+    output="$(HOME="$home" USERPROFILE="$home" bash "$REPO_DIR/a11yctl" debug status 2>&1)"
+    assert_equals "$?" "0" "debug status retorna sucesso"
+    assert_contains "$output" "DEBUG está ativado" "debug status detecta modo ativo"
+
+    output="$(HOME="$home" USERPROFILE="$home" bash "$REPO_DIR/a11yctl" debug off 2>&1)"
+    assert_equals "$?" "0" "debug off retorna sucesso"
+    assert_contains "$output" "DEBUG desativado" "debug off informa desativacao"
+    if [[ -f "$home/.a11yctl/qemu/debug.enabled" ]]; then
+        fail "debug off remove flag persistente"
+    else
+        pass "debug off remove flag persistente"
+    fi
+
+    rm -rf "$tmp"
+}
+
 run_migrate_conflict_test
 run_wrapper_test
 run_no_legacy_test
@@ -737,6 +764,7 @@ run_vm_diagnose_dispatch_test
 run_vm_config_show_dispatch_test
 run_vm_config_get_set_reset_dispatch_test
 run_vm_config_backend_error_test
+run_debug_command_persistence_test
 
 printf '\nResumo: %d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 

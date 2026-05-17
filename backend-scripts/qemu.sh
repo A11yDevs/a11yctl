@@ -1002,16 +1002,17 @@ qemu_cmd_list() {
 
 
 qemu_cmd_start() {
-    local vm_name ssh_port headless system_image data_disk log_file args_log_file mem_mb cpu_count net_device host_mem_mb effective_accel effective_cpu_model debug_mode debug_flag
+    local vm_name ssh_port headless system_image data_disk log_file args_log_file mem_mb cpu_count net_device host_mem_mb effective_accel effective_cpu_model debug_mode debug_flag debug_flag_file
     vm_name=$(qemu_parse_vm_name "$@")
     ssh_port=$(qemu_parse_ssh_port "$@")
     headless=0
     debug_mode=0
     debug_flag=0
+    debug_flag_file="$EA11_QEMU_STATE_DIR/debug.enabled"
     for arg in "$@"; do
         [[ "$arg" == "--debug" ]] && debug_flag=1
     done
-    if [[ "${EA11_DEBUG:-}" == "1" ]] || [[ $debug_flag -eq 1 ]]; then
+    if [[ "${EA11_DEBUG:-}" == "1" ]] || [[ $debug_flag -eq 1 ]] || [[ -f "$debug_flag_file" ]]; then
         debug_mode=1
     fi
     if ea11_backend_has_flag --headless "$@" || ea11_backend_has_flag -h "$@"; then

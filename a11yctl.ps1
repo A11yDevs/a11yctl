@@ -723,6 +723,60 @@ function Get-QemuRuntimeConfigPath {
     return (Join-Path (Get-QemuStateDirectory) 'config.env')
 }
 
+function Get-QemuDebugFlagPath {
+    return (Join-Path (Get-QemuStateDirectory) 'debug.enabled')
+}
+
+function Test-QemuDebugEnabled {
+    if ($env:EA11_DEBUG -eq '1') {
+        return $true
+    }
+
+    return (Test-Path (Get-QemuDebugFlagPath))
+}
+
+function Invoke-DebugCommand {
+    param([string[]]$Tokens)
+
+    $mode = 'status'
+    if ($Tokens.Length -gt 0 -and -not [string]::IsNullOrWhiteSpace($Tokens[0])) {
+        $mode = $Tokens[0].ToLowerInvariant()
+    }
+
+    $flagPath = Get-QemuDebugFlagPath
+
+    switch ($mode) {
+        { $_ -in @('on','1','true') } {
+            $dir = Split-Path -Path $flagPath -Parent
+            if (-not (Test-Path $dir)) {
+                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            }
+            Set-Content -Path $flagPath -Value '1' -NoNewline
+            $env:EA11_DEBUG = '1'
+            Write-Host 'DEBUG ativado (sessao atual + persistente).'
+            return
+        }
+        { $_ -in @('off','0','false') } {
+            Remove-Item Env:EA11_DEBUG -ErrorAction SilentlyContinue
+            Remove-Item -Path $flagPath -Force -ErrorAction SilentlyContinue
+            Write-Host 'DEBUG desativado (sessao atual + persistente).'
+            return
+        }
+        'status' {
+            if (Test-QemuDebugEnabled) {
+                Write-Host 'DEBUG está ativado.'
+            }
+            else {
+                Write-Host 'DEBUG está desativado.'
+            }
+            return
+        }
+        default {
+            throw "Valor invalido para debug: $mode. Use: a11yctl debug on | off | status"
+        }
+    }
+}
+
 function Get-DefaultQemuRuntimeConfig {
     $isWindowsHost = Test-IsWindowsHost
     $isMacHost = Test-IsMacOSHost
@@ -2176,9 +2230,9 @@ function Invoke-QemuVMStart {
 
     $runtimeCfg = Get-QemuRuntimeConfig
 
-    # Detecta modo debug: EA11_DEBUG=1 ou --debug
+    # Detecta modo debug: EA11_DEBUG=1, flag persistente ou --debug
     $debugMode = $false
-    if ($env:EA11_DEBUG -eq '1' -or ($Tokens -contains '--debug')) { $debugMode = $true }
+    if ((Test-QemuDebugEnabled) -or ($Tokens -contains '--debug')) { $debugMode = $true }
 
     $vmName = Get-VMName -Tokens $Tokens
     $sshPort = Get-IntOptionValue -Tokens $Tokens -Names @('--port', '--ssh-port', '-p') -Default 2222 -OptionName '--ssh-port'
@@ -3277,6 +3331,7 @@ function Invoke-RootCommand {
         'help' { Show-Help }
         '--help' { Show-Help }
         '-h' { Show-Help }
+        'debug' { Invoke-DebugCommand -Tokens $rest }
         'version' { Invoke-VersionCommand -Tokens $rest }
         '--version' { Invoke-VersionCommand -Tokens $rest }
         'self-update' { Invoke-SelfUpdate -Tokens $rest }
@@ -3435,28 +3490,7 @@ function Get-ContextCommandList {
 function Set-InteractiveDebugMode {
     param([string]$Mode = 'status')
 
-    switch ($Mode.ToLowerInvariant()) {
-        { $_ -in @('on','1','true') } {
-            $env:EA11_DEBUG = '1'
-            Write-Host 'DEBUG ativado para esta sessão interativa.'
-        }
-        { $_ -in @('off','0','false') } {
-            Remove-Item Env:EA11_DEBUG -ErrorAction SilentlyContinue
-            Write-Host 'DEBUG desativado para esta sessão interativa.'
-        }
-        'status' {
-            if ($env:EA11_DEBUG -eq '1') {
-                Write-Host 'DEBUG está ativado.'
-            }
-            else {
-                Write-Host 'DEBUG está desativado.'
-            }
-        }
-        default {
-            Write-Host "Valor inválido para debug: $Mode"
-            Write-Host 'Use: debug on | debug off | debug status'
-        }
-    }
+    Invoke-DebugCommand -Tokens @($Mode)
 }
 
 function Show-CommandSuggestion {

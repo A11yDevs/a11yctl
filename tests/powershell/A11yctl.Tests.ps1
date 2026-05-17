@@ -310,4 +310,26 @@ Describe 'a11yctl PowerShell minimum tests' {
 
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    It 'debug on, status e off funcionam com flag persistente' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+
+        $onResult = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('debug', 'on') -HomePath $testHome
+        $onResult.ExitCode | Should -Be 0 -Because "Saida do script: $($onResult.Output)"
+        $onResult.Output | Should -Match 'DEBUG ativado'
+        Test-Path (Join-Path $testHome '.a11yctl/qemu/debug.enabled') | Should -BeTrue
+
+        $statusResult = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('debug', 'status') -HomePath $testHome
+        $statusResult.ExitCode | Should -Be 0 -Because "Saida do script: $($statusResult.Output)"
+        $statusResult.Output | Should -Match 'DEBUG está ativado'
+
+        $offResult = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('debug', 'off') -HomePath $testHome
+        $offResult.ExitCode | Should -Be 0 -Because "Saida do script: $($offResult.Output)"
+        $offResult.Output | Should -Match 'DEBUG desativado'
+        Test-Path (Join-Path $testHome '.a11yctl/qemu/debug.enabled') | Should -BeFalse
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
