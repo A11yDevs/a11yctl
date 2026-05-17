@@ -180,6 +180,10 @@ $cacheBust = [int64]([DateTime]::UtcNow - [DateTime]'1970-01-01').TotalSeconds
 $files = @(
     @{ Name = 'a11yctl.ps1'; Url = "$baseRaw/a11yctl.ps1?cb=$cacheBust" },
     @{ Name = 'a11yctl.cmd'; Url = "$baseRaw/a11yctl.cmd?cb=$cacheBust" },
+    @{ Name = 'a11yctl-reinstall.ps1'; Url = "$baseRaw/a11yctl-reinstall.ps1?cb=$cacheBust" },
+    @{ Name = 'a11yctl-reinstall.cmd'; Url = "$baseRaw/a11yctl-reinstall.cmd?cb=$cacheBust" },
+    @{ Name = 'a11yctl-uninstall.ps1'; Url = "$baseRaw/a11yctl-uninstall.ps1?cb=$cacheBust" },
+    @{ Name = 'a11yctl-uninstall.cmd'; Url = "$baseRaw/a11yctl-uninstall.cmd?cb=$cacheBust" },
     @{ Name = 'ea11ctl.ps1'; Url = "$baseRaw/ea11ctl.ps1?cb=$cacheBust" },
     @{ Name = 'ea11ctl.cmd'; Url = "$baseRaw/ea11ctl.cmd?cb=$cacheBust" },
     @{ Name = 'backend-scripts/powershell/a11yctl.runtime.ps1'; Url = "$baseRaw/backend-scripts/powershell/a11yctl.runtime.ps1?cb=$cacheBust" },
@@ -281,5 +285,7 @@ Write-Host 'Teste agora com:' -ForegroundColor Green
 Write-Host '  a11yctl help' -ForegroundColor Green
 Write-Host '  a11yctl version --check-update' -ForegroundColor Green
 Write-Host '  a11yctl vm install' -ForegroundColor Green
+Write-Host '  a11yctl-reinstall' -ForegroundColor Green
+Write-Host '  a11yctl-uninstall' -ForegroundColor Green
 Write-Host 'Compatibilidade temporaria:' -ForegroundColor Green
 Write-Host '  ea11ctl help' -ForegroundColor Green

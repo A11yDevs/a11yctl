@@ -3,7 +3,7 @@
 param()
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$binNames = @('a11yctl', 'ea11ctl')
+$binNames = @('a11yctl', 'ea11ctl', 'a11yctl-reinstall', 'a11yctl-uninstall')
 $binDirs = @("$env:USERPROFILE/.a11yctl/bin", "$env:USERPROFILE/.local/bin", "$env:USERPROFILE/bin")
 
 foreach ($bin in $binNames) {

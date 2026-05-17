@@ -8,16 +8,39 @@ function Invoke-VmLogsCommand {
         }
     }
     $logDir = Join-Path (Get-EA11StateDirectory) 'logs'
+
+    function Resolve-VMLogFile {
+        param(
+            [string]$LogsDirectory,
+            [string]$VmName
+        )
+
+        $candidates = @(
+            (Join-Path $LogsDirectory ("$VmName.qemu.log")),
+            (Join-Path $LogsDirectory ("$VmName-stderr.log")),
+            (Join-Path $LogsDirectory ("$VmName-stdout.log"))
+        )
+
+        foreach ($candidate in $candidates) {
+            if (Test-Path $candidate) {
+                return $candidate
+            }
+        }
+
+        return $null
+    }
+
     if ($name) {
-        $logFile = Join-Path $logDir ("$name.qemu.log")
-        if (Test-Path $logFile) {
+        $logFile = Resolve-VMLogFile -LogsDirectory $logDir -VmName $name
+        if ($null -ne $logFile) {
             Write-Host "==> Log da VM '$name': $logFile"
             Get-Content -Path $logFile
         } else {
-            throw "Nenhum log encontrado para a VM '$name' em $logFile"
+            throw "Nenhum log encontrado para a VM '$name' em $logDir"
         }
     } else {
-        $files = Get-ChildItem -Path $logDir -Filter '*.qemu.log' -File -ErrorAction SilentlyContinue
+        $files = Get-ChildItem -Path $logDir -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '\.qemu\.log$|-stderr\.log$|-stdout\.log$' }
         if ($files.Count -eq 0) {
             throw "Nenhum log de VM encontrado em $logDir"
         }
@@ -63,6 +86,20 @@ $A11YCTL_LEGACY_COMMAND = 'ea11ctl'
 $A11YCTL_STATE_DIRNAME = '.a11yctl'
 $A11YCTL_LEGACY_STATE_DIRNAME = '.emacs-a11y-vm'
 
+function Show-FullscreenStartNotice {
+    if (Test-IsWindowsHost) {
+        Write-Host '[a11yctl] A VM abrirá em tela cheia. Para sair, use CTRL+ALT+F.' -ForegroundColor Yellow
+    }
+    elseif (Test-IsMacOSHost) {
+        Write-Host '[a11yctl] A VM abrirá em tela cheia. Para sair, use CTRL+Option+F.' -ForegroundColor Yellow
+    }
+    else {
+        Write-Host '[a11yctl] A VM pode abrir em tela cheia. Use o atalho da sua plataforma para alternar.' -ForegroundColor Yellow
+    }
+
+    [void](Read-Host 'Pressione ENTER para iniciar a VM')
+}
+
 function Write-EA11Info {
     param([string]$Message)
     Write-Host "[a11yctl] $Message" -ForegroundColor Cyan
@@ -97,6 +134,7 @@ Uso:
   a11yctl vm close|-c [-n|--name VM]
   a11yctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
   a11yctl vm host-share|-H list
+    a11yctl vm logs [-n|--name VM]
     a11yctl vm config [show|--raw|list|path|reset|help]
     a11yctl vm config get CHAVE [--raw]
     a11yctl vm config set CHAVE VALOR
@@ -423,6 +461,10 @@ function Invoke-SelfUpdate {
     $files = @(
         'a11yctl.ps1',
         'a11yctl.cmd',
+        'a11yctl-reinstall.ps1',
+        'a11yctl-reinstall.cmd',
+        'a11yctl-uninstall.ps1',
+        'a11yctl-uninstall.cmd',
         'ea11ctl.ps1',
         'ea11ctl.cmd',
         'install.ps1',
@@ -2388,6 +2430,10 @@ function Invoke-QemuVMStart {
         $qemuArgs += Get-QemuDesktopDisplayArgs -FullscreenMode $fullscreenMode
 
         $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
+
+        if ((ConvertTo-FullscreenNormalized -Value $fullscreenMode) -eq 'on' -and -not $env:CI) {
+            Show-FullscreenStartNotice
+        }
     }
 
     Write-EA11Info "Iniciando VM QEMU '$vmName'..."
@@ -2760,6 +2806,10 @@ function Invoke-Uninstall {
     $selfPath = $MyInvocation.MyCommand.Path
     $toRemove = @(
         'a11yctl.cmd',
+        'a11yctl-reinstall.cmd',
+        'a11yctl-reinstall.ps1',
+        'a11yctl-uninstall.cmd',
+        'a11yctl-uninstall.ps1',
         'ea11ctl.cmd',
         'ea11ctl.ps1',
         'install.ps1',
@@ -3440,6 +3490,7 @@ ssh            conecta via SSH
 host-share     entra em compartilhamento do host
 config         entra em configuração da VM
 optimize       otimiza a VM
+logs           visualiza logs das VMs
 debug          ativa/desativa debug da sessão (on|off|status)
 back           volta
 exit           sai
@@ -3539,7 +3590,7 @@ function Get-ContextCommandList {
     param([string]$Context)
 
     switch ($Context) {
-        'vm' { return @('help','?','install','list','start','stop','close','remove','delete','diagnose','status','ssh','host-share','config','optimize','debug','back','exit','quit','clear') }
+        'vm' { return @('help','?','install','list','start','stop','close','remove','delete','diagnose','status','ssh','host-share','config','optimize','logs','debug','back','exit','quit','clear') }
         'vm_config' { return @('help','?','show','--raw','list','get','set','path','reset','debug','back','exit','quit','clear') }
         'vm_host_share' { return @('help','?','list','debug','back','exit','quit','clear') }
         'host' { return @('help','?','install','debug','back','exit','quit','clear') }

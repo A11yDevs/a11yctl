@@ -9,7 +9,10 @@ set -euo pipefail
 readonly INSTALL_OWNER='A11yDevs'
 readonly INSTALL_REPO='a11yctl'
 readonly INSTALL_BRANCH='main'
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR=''
+if [[ -n "${BASH_SOURCE[0]-}" ]] && [[ -f "${BASH_SOURCE[0]}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 
 #################################################################################
 # Funções de Logging
@@ -247,14 +250,17 @@ ensure_qemu_installed() {
 
 install_backend_scripts() {
     local backend_dir="$HOME/.a11yctl/scripts"
-    local local_backend_dir="$SCRIPT_DIR/backend-scripts"
+    local local_backend_dir=""
+    if [[ -n "$SCRIPT_DIR" ]]; then
+        local_backend_dir="$SCRIPT_DIR/backend-scripts"
+    fi
     local remote_backend_url="https://raw.githubusercontent.com/$INSTALL_OWNER/$INSTALL_REPO/$INSTALL_BRANCH/backend-scripts"
     local file
 
     ensure_directory "$backend_dir"
 
     for file in common.sh qemu.sh host.sh; do
-        if [[ -f "$local_backend_dir/$file" ]]; then
+        if [[ -n "$local_backend_dir" ]] && [[ -f "$local_backend_dir/$file" ]]; then
             cp "$local_backend_dir/$file" "$backend_dir/$file"
         else
             download_file "$remote_backend_url/$file" "$backend_dir/$file" "$file"
@@ -302,6 +308,8 @@ main() {
     declare -a files=(
         "a11yctl"
         "ea11ctl"
+        "a11yctl-reinstall"
+        "a11yctl-uninstall"
         "install.sh"
         "VERSION"
     )
@@ -331,6 +339,8 @@ main() {
     # Tornar scripts executáveis
     chmod +x "$install_dir/a11yctl"
     chmod +x "$install_dir/ea11ctl"
+    chmod +x "$install_dir/a11yctl-reinstall"
+    chmod +x "$install_dir/a11yctl-uninstall"
     chmod +x "$install_dir/install.sh"
     print_info "Permissões de execução aplicadas"
 

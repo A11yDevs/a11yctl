@@ -126,6 +126,26 @@ qemu_print_launch_summary() {
     printf '  qemu_args_log=%s\n' "$args_log_file"
 }
 
+qemu_print_fullscreen_notice() {
+    local os_name
+    os_name="$(uname -s)"
+
+    case "$os_name" in
+        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+            ea11_backend_warn 'A VM vai abrir em tela cheia. Para sair, use CTRL+ALT+F.'
+            ;;
+        Darwin*)
+            ea11_backend_warn 'A VM vai abrir em tela cheia. Para sair, use CTRL+Option+F.'
+            ;;
+        *)
+            ea11_backend_warn 'A VM pode abrir em tela cheia. Use o atalho da sua plataforma para alternar.'
+            ;;
+    esac
+
+    printf 'Pressione ENTER para iniciar a VM... '
+    read -r _
+}
+
 qemu_default_accel() {
     case "$(uname -s)" in
         Darwin*)
@@ -1115,6 +1135,12 @@ qemu_cmd_start() {
                     qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}")
                     ;;
             esac
+        fi
+
+        local fullscreen_mode_normalized
+        fullscreen_mode_normalized=$(printf '%s' "${QEMU_FULLSCREEN:-on}" | tr '[:upper:]' '[:lower:]')
+        if [[ "$fullscreen_mode_normalized" == 'on' ]] && [[ -z "${CI:-}" ]] && [[ -t 0 ]]; then
+            qemu_print_fullscreen_notice
         fi
     fi
 
