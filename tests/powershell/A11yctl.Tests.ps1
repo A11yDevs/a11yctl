@@ -230,14 +230,14 @@ Describe 'a11yctl PowerShell minimum tests' {
         @('linha-1', 'linha-2', 'linha-3') | Set-Content -Path $stderrLog
 
         $statePath = Join-Path $qemuStateDir 'demo.json'
-        ("{" +
-            "\"name\":\"demo\"," +
-            "\"sshPort\":2222," +
-            "\"pid\":0," +
-            "\"systemDisk\":\"/tmp/system.qcow2\"," +
-            "\"userDataDisk\":\"/tmp/data.qcow2\"," +
-            "\"stderrLog\":\"$($stderrLog.Replace('\\','\\\\'))\"" +
-        "}") | Set-Content -Path $statePath -NoNewline
+        @{
+            name = 'demo'
+            sshPort = 2222
+            pid = 0
+            systemDisk = '/tmp/system.qcow2'
+            userDataDisk = '/tmp/data.qcow2'
+            stderrLog = $stderrLog
+        } | ConvertTo-Json -Compress | Set-Content -Path $statePath -NoNewline
 
         $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'diagnose', '-n', 'demo', '-L', '2') -HomePath $testHome
 
