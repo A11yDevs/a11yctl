@@ -434,6 +434,104 @@ EOF
     rm -rf "$tmp"
 }
 
+run_vm_list_dispatch_test() {
+    local tmp sandbox home output
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+
+    mkdir -p "$sandbox/backend-scripts" "$home"
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    chmod +x "$sandbox/a11yctl"
+
+    cat > "$sandbox/backend-scripts/common.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/host.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/qemu.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" > "${HOME}/vm-dispatch.log"
+exit 0
+EOF
+    chmod +x "$sandbox/backend-scripts/qemu.sh" "$sandbox/backend-scripts/host.sh"
+
+    output="$(HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm list 2>&1)"
+    assert_equals "$?" "0" "vm list retorna sucesso"
+    assert_equals "$(cat "$home/vm-dispatch.log")" "list" "vm list despacha para backend com comando list"
+    assert_equals "$output" "" "vm list sem erro nao imprime diagnostico extra"
+
+    rm -rf "$tmp"
+}
+
+run_vm_install_dispatch_args_test() {
+    local tmp sandbox home
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+
+    mkdir -p "$sandbox/backend-scripts" "$home"
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    chmod +x "$sandbox/a11yctl"
+
+    cat > "$sandbox/backend-scripts/common.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/host.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/qemu.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" > "${HOME}/vm-install-dispatch.log"
+exit 0
+EOF
+    chmod +x "$sandbox/backend-scripts/qemu.sh" "$sandbox/backend-scripts/host.sh"
+
+    HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm install --tag v1.2.3 --force-download >/dev/null 2>&1
+    assert_equals "$?" "0" "vm install retorna sucesso"
+    assert_equals "$(cat "$home/vm-install-dispatch.log")" "install --tag v1.2.3 --force-download" "vm install preserva argumentos para backend"
+
+    rm -rf "$tmp"
+}
+
+run_vm_backend_error_propagation_test() {
+    local tmp sandbox home output
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+
+    mkdir -p "$sandbox/backend-scripts" "$home"
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    chmod +x "$sandbox/a11yctl"
+
+    cat > "$sandbox/backend-scripts/common.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/host.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/qemu.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "backend-fail" >&2
+exit 42
+EOF
+    chmod +x "$sandbox/backend-scripts/qemu.sh" "$sandbox/backend-scripts/host.sh"
+
+    set +e
+    output="$(HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm list 2>&1)"
+    local status=$?
+    set -e
+
+    assert_equals "$status" "42" "erro do backend em vm list e propagado"
+    assert_contains "$output" "backend-fail" "erro do backend e exibido ao usuario"
+
+    rm -rf "$tmp"
+}
+
 run_migrate_conflict_test
 run_wrapper_test
 run_no_legacy_test
@@ -443,6 +541,9 @@ run_wrapper_invalid_command_test
 run_self_update_force_mock_test
 run_self_update_no_force_up_to_date_test
 run_self_update_no_force_remote_newer_test
+run_vm_list_dispatch_test
+run_vm_install_dispatch_args_test
+run_vm_backend_error_propagation_test
 
 printf '\nResumo: %d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 

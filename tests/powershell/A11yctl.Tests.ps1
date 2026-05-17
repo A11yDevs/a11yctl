@@ -142,4 +142,32 @@ Describe 'a11yctl PowerShell minimum tests' {
 
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    It 'vm list sem VMs registradas retorna sucesso e mensagem informativa' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'list') -HomePath $testHome
+
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
+        $result.Output | Should -Match 'Nenhuma VM QEMU registrada'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'vm install com disco existente nao tenta download e retorna sucesso' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        $stateDir = Join-Path $testHome '.a11yctl'
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+        Set-Content -Path (Join-Path $stateDir 'debian-a11ydevs.qcow2') -Value 'existing-disk' -NoNewline
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'install') -HomePath $testHome
+
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
+        $result.Output | Should -Match 'Imagem QCOW2 ja existe'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
