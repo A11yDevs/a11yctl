@@ -5,7 +5,7 @@ $repoDir = (Resolve-Path (Join-Path $testsDir '..' '..')).Path
 $a11yctlScript = Join-Path $repoDir 'a11yctl.ps1'
 $legacyWrapperScript = Join-Path $repoDir 'ea11ctl.ps1'
 
-function Invoke-ScriptWithHome {
+function global:Invoke-ScriptWithHome {
     param(
         [Parameter(Mandatory = $true)][string]$ScriptPath,
         [Parameter(Mandatory = $true)][string[]]$Arguments,
