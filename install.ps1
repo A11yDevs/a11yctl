@@ -176,13 +176,14 @@ Ensure-Directory -Path $backendScriptsDir
 Ensure-Directory -Path $backendPowershellDir
 
 $baseRaw = "https://raw.githubusercontent.com/$INSTALL_OWNER/$INSTALL_REPO/$INSTALL_BRANCH"
+$cacheBust = [int64]([DateTime]::UtcNow - [DateTime]'1970-01-01').TotalSeconds
 $files = @(
-    @{ Name = 'a11yctl.ps1'; Url = "$baseRaw/a11yctl.ps1" },
-    @{ Name = 'a11yctl.cmd'; Url = "$baseRaw/a11yctl.cmd" },
-    @{ Name = 'ea11ctl.ps1'; Url = "$baseRaw/ea11ctl.ps1" },
-    @{ Name = 'ea11ctl.cmd'; Url = "$baseRaw/ea11ctl.cmd" },
-    @{ Name = 'backend-scripts/powershell/a11yctl.runtime.ps1'; Url = "$baseRaw/backend-scripts/powershell/a11yctl.runtime.ps1" },
-    @{ Name = 'VERSION'; Url = "$baseRaw/VERSION" }
+    @{ Name = 'a11yctl.ps1'; Url = "$baseRaw/a11yctl.ps1?cb=$cacheBust" },
+    @{ Name = 'a11yctl.cmd'; Url = "$baseRaw/a11yctl.cmd?cb=$cacheBust" },
+    @{ Name = 'ea11ctl.ps1'; Url = "$baseRaw/ea11ctl.ps1?cb=$cacheBust" },
+    @{ Name = 'ea11ctl.cmd'; Url = "$baseRaw/ea11ctl.cmd?cb=$cacheBust" },
+    @{ Name = 'backend-scripts/powershell/a11yctl.runtime.ps1'; Url = "$baseRaw/backend-scripts/powershell/a11yctl.runtime.ps1?cb=$cacheBust" },
+    @{ Name = 'VERSION'; Url = "$baseRaw/VERSION?cb=$cacheBust" }
 )
 
 if ((-not [string]::IsNullOrWhiteSpace($legacyInstallDir)) -and (Test-Path $legacyInstallDir)) {
@@ -242,7 +243,9 @@ foreach ($file in $files) {
 if (Test-Path $legacyStateDir) {
     Write-Info "Diretorio legado detectado em: $legacyStateDir"
     try {
-        & (Join-Path $installDir 'a11yctl.ps1') 'migrate-state' '--quiet'
+        $runtimePath = Join-Path $installDir 'backend-scripts/powershell/a11yctl.runtime.ps1'
+        . $runtimePath
+        Invoke-A11CtlRuntime -Args @('migrate-state', '--quiet')
         Write-Info 'Migracao automatica do estado legado concluida.'
     }
     catch {
