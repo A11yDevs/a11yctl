@@ -1,3 +1,33 @@
+run_vm_logs_test() {
+    local tmp sandbox home logdir output
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+    logdir="$home/.a11yctl/logs"
+
+    mkdir -p "$sandbox/backend-scripts" "$home" "$logdir"
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    chmod +x "$sandbox/a11yctl"
+
+    # Cria logs de duas VMs
+    echo 'log-vm1' > "$logdir/vm1.qemu.log"
+    echo 'log-vm2' > "$logdir/vm2.qemu.log"
+
+    output="$(HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm logs 2>&1)"
+    assert_contains "$output" '==> Log: ' "vm logs lista logs existentes"
+    assert_contains "$output" 'log-vm1' "vm logs exibe conteudo do log da vm1"
+    assert_contains "$output" 'log-vm2' "vm logs exibe conteudo do log da vm2"
+
+    output="$(HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm logs -n vm1 2>&1)"
+    assert_contains "$output" '==> Log da VM' "vm logs -n mostra header correto"
+    assert_contains "$output" 'log-vm1' "vm logs -n mostra conteudo correto"
+    assert_not_equals "$output" "" "vm logs -n nao retorna vazio"
+
+    output="$(HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm logs -n inexistente 2>&1 || true)"
+    assert_contains "$output" 'Nenhum log encontrado' "vm logs -n inexistente informa ausencia"
+
+    rm -rf "$tmp"
+}
 #!/usr/bin/env bash
 
 set -euo pipefail
@@ -765,6 +795,7 @@ run_vm_config_show_dispatch_test
 run_vm_config_get_set_reset_dispatch_test
 run_vm_config_backend_error_test
 run_debug_command_persistence_test
+run_vm_logs_test
 
 printf '\nResumo: %d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 

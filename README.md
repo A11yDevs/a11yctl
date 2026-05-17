@@ -25,6 +25,7 @@ O instalador Bash instala o comando em /usr/local/bin (quando permitido) ou ~/.l
 
 ## Uso basico
 
+
 ```powershell
 a11yctl help
 a11yctl version --check-update
@@ -32,6 +33,8 @@ a11yctl vm install
 a11yctl vm start
 a11yctl vm status
 a11yctl vm ssh
+a11yctl vm logs           # Exibe logs das VMs
+a11yctl vm logs -n <nome> # Exibe log de uma VM específica
 ```
 
 Compatibilidade temporaria:

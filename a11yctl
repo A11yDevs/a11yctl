@@ -563,8 +563,43 @@ invoke_vm_config() {
     run_backend_command config "$action" "$@"
 }
 
-invoke_vm_optimize() {
-    run_backend_command optimize "$@"
+
+# Exibe o log principal da VM (ou todas, se não especificado)
+invoke_vm_logs() {
+    local name=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -n|--name)
+                name="$2"; shift 2;;
+            *)
+                break;;
+        esac
+    done
+    local log_dir="$(get_ea11_state_directory)/logs"
+    local qemu_dir="$(get_ea11_state_directory)/qemu"
+    if [[ -n "$name" ]]; then
+        local log_file="$log_dir/${name}.qemu.log"
+        if [[ -f "$log_file" ]]; then
+            echo "==> Log da VM '$name': $log_file"
+            cat "$log_file"
+        else
+            echo "Nenhum log encontrado para a VM '$name' em $log_file" >&2
+            return 1
+        fi
+    else
+        local found=0
+        for f in "$log_dir"/*.qemu.log; do
+            [[ -e "$f" ]] || continue
+            echo "==> Log: $f"
+            cat "$f"
+            echo
+            found=1
+        done
+        if [[ $found -eq 0 ]]; then
+            echo "Nenhum log de VM encontrado em $log_dir" >&2
+            return 1
+        fi
+    fi
 }
 
 #################################################################################
@@ -581,55 +616,41 @@ invoke_host_install() {
 invoke_vm_command() {
     local action="${1:-}"
     shift || true
-    
     case "$action" in
         install|-i)
-            invoke_vm_install "$@"
-            ;;
+            invoke_vm_install "$@" ;;
         version|-V)
             assert_no_backend_option "$@" || return 1
-            run_backend_command version "$@"
-            ;;
+            run_backend_command version "$@" ;;
         check-update|-U)
             assert_no_backend_option "$@" || return 1
-            run_backend_command check-update "$@"
-            ;;
+            run_backend_command check-update "$@" ;;
         list|-l)
-            invoke_vm_list "$@"
-            ;;
+            invoke_vm_list "$@" ;;
         start|-s)
-            invoke_vm_start "$@"
-            ;;
+            invoke_vm_start "$@" ;;
         stop|-S)
-            invoke_vm_stop "$@"
-            ;;
+            invoke_vm_stop "$@" ;;
         close|-c)
-            invoke_vm_close "$@"
-            ;;
+            invoke_vm_close "$@" ;;
         remove|-r|delete)
-            invoke_vm_remove "$@"
-            ;;
+            invoke_vm_remove "$@" ;;
         status|-q)
-            invoke_vm_status "$@"
-            ;;
+            invoke_vm_status "$@" ;;
         diagnose|-d)
-            invoke_vm_diagnose "$@"
-            ;;
+            invoke_vm_diagnose "$@" ;;
         ssh|-x)
-            invoke_vm_ssh "$@"
-            ;;
+            invoke_vm_ssh "$@" ;;
         share-folder|-F)
-            invoke_vm_host_share "$@"
-            ;;
+            invoke_vm_host_share "$@" ;;
         host-share|-H)
-            invoke_vm_host_share "$@"
-            ;;
+            invoke_vm_host_share "$@" ;;
         config)
-            invoke_vm_config "$@"
-            ;;
+            invoke_vm_config "$@" ;;
         optimize)
-            invoke_vm_optimize "$@"
-            ;;
+            invoke_vm_optimize "$@" ;;
+        logs)
+            invoke_vm_logs "$@" ;;
         *)
             ea11_error "Subcomando vm desconhecido: $action"
             show_help

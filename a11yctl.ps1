@@ -1,3 +1,35 @@
+function Invoke-VmLogsCommand {
+    param([string[]]$Tokens)
+    $name = $null
+    for ($i = 0; $i -lt $Tokens.Length; $i++) {
+        switch ($Tokens[$i]) {
+            '-n' { if ($i + 1 -lt $Tokens.Length) { $name = $Tokens[$i+1]; $i++ } }
+            '--name' { if ($i + 1 -lt $Tokens.Length) { $name = $Tokens[$i+1]; $i++ } }
+        }
+    }
+    $logDir = Join-Path (Get-EA11StateDirectory) 'logs'
+    if ($name) {
+        $logFile = Join-Path $logDir ("$name.qemu.log")
+        if (Test-Path $logFile) {
+            Write-Host "==> Log da VM '$name': $logFile"
+            Get-Content -Path $logFile
+        } else {
+            Write-Host "Nenhum log encontrado para a VM '$name' em $logFile" -ForegroundColor Yellow
+            return 1
+        }
+    } else {
+        $files = Get-ChildItem -Path $logDir -Filter '*.qemu.log' -File -ErrorAction SilentlyContinue
+        if ($files.Count -eq 0) {
+            Write-Host "Nenhum log de VM encontrado em $logDir" -ForegroundColor Yellow
+            return 1
+        }
+        foreach ($f in $files) {
+            Write-Host "==> Log: $($f.FullName)"
+            Get-Content -Path $f.FullName
+            Write-Host
+        }
+    }
+}
 [CmdletBinding()]
 param(
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -3308,6 +3340,9 @@ function Invoke-VMCommand {
         }
         { $_ -in @('host-share', '-H') } {
             Invoke-VMHostShare -Tokens $rest
+        }
+        { $_ -in @('logs') } {
+            Invoke-VmLogsCommand -Tokens $rest
         }
         default { throw "Subcomando vm desconhecido: $sub" }
     }
