@@ -1,9 +1,17 @@
 Set-StrictMode -Version Latest
 
-$testsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$testsDir = $PSScriptRoot
 $repoDir = (Resolve-Path (Join-Path $testsDir '..' '..')).Path
 $a11yctlScript = Join-Path $repoDir 'a11yctl.ps1'
 $legacyWrapperScript = Join-Path $repoDir 'ea11ctl.ps1'
+
+if ([string]::IsNullOrWhiteSpace($a11yctlScript) -or -not (Test-Path $a11yctlScript)) {
+    throw "Arquivo de teste nao encontrado: $a11yctlScript"
+}
+
+if ([string]::IsNullOrWhiteSpace($legacyWrapperScript) -or -not (Test-Path $legacyWrapperScript)) {
+    throw "Arquivo de teste nao encontrado: $legacyWrapperScript"
+}
 
 function global:Invoke-ScriptWithHome {
     param(
