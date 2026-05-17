@@ -1,16 +1,17 @@
 Set-StrictMode -Version Latest
 
-$testsDir = $PSScriptRoot
-$repoDir = (Resolve-Path (Join-Path $testsDir '..' '..')).Path
-$a11yctlScript = Join-Path $repoDir 'a11yctl.ps1'
-$legacyWrapperScript = Join-Path $repoDir 'ea11ctl.ps1'
+function Get-TestScriptPath {
+    param([Parameter(Mandatory = $true)][string]$FileName)
 
-if ([string]::IsNullOrWhiteSpace($a11yctlScript) -or -not (Test-Path $a11yctlScript)) {
-    throw "Arquivo de teste nao encontrado: $a11yctlScript"
-}
+    $testsDir = $PSScriptRoot
+    $repoDir = (Resolve-Path (Join-Path $testsDir '..' '..')).Path
+    $path = Join-Path $repoDir $FileName
 
-if ([string]::IsNullOrWhiteSpace($legacyWrapperScript) -or -not (Test-Path $legacyWrapperScript)) {
-    throw "Arquivo de teste nao encontrado: $legacyWrapperScript"
+    if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path $path)) {
+        throw "Arquivo de teste nao encontrado: $path"
+    }
+
+    return $path
 }
 
 function global:Invoke-ScriptWithHome {
@@ -61,7 +62,7 @@ Describe 'a11yctl PowerShell minimum tests' {
         Set-Content -Path (Join-Path $target 'debian-a11ydevs.qcow2') -Value 'current-disk' -NoNewline
         Set-Content -Path (Join-Path $legacy 'qemu/debian-a11y.json') -Value '{"name":"debian-a11y"}' -NoNewline
 
-        $result = Invoke-ScriptWithHome -ScriptPath $a11yctlScript -Arguments @('migrate-state', '--quiet') -HomePath $testHome
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('migrate-state', '--quiet') -HomePath $testHome
 
         $result.ExitCode | Should -Be 0
         (Get-Content -Path (Join-Path $target 'debian-a11ydevs.qcow2') -Raw) | Should -Be 'current-disk'
@@ -77,7 +78,7 @@ Describe 'a11yctl PowerShell minimum tests' {
         $testHome = Join-Path $tmpRoot 'home'
         New-Item -ItemType Directory -Path $testHome -Force | Out-Null
 
-        $result = Invoke-ScriptWithHome -ScriptPath $legacyWrapperScript -Arguments @('version') -HomePath $testHome
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'ea11ctl.ps1') -Arguments @('version') -HomePath $testHome
 
         $result.ExitCode | Should -Be 0
         $result.Output | Should -Match 'ea11ctl.*obsoleto'
@@ -91,7 +92,7 @@ Describe 'a11yctl PowerShell minimum tests' {
         $testHome = Join-Path $tmpRoot 'home'
         New-Item -ItemType Directory -Path $testHome -Force | Out-Null
 
-        $result = Invoke-ScriptWithHome -ScriptPath $a11yctlScript -Arguments @('migrate-state', '--quiet') -HomePath $testHome
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('migrate-state', '--quiet') -HomePath $testHome
 
         $result.ExitCode | Should -Be 0
 
