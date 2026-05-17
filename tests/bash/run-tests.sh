@@ -280,6 +280,160 @@ EOF
     rm -rf "$tmp"
 }
 
+run_self_update_no_force_up_to_date_test() {
+    local tmp sandbox home mockbin output before_version after_version
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+    mockbin="$tmp/mockbin"
+
+    mkdir -p "$sandbox/backend-scripts" "$home" "$mockbin"
+
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    cp "$REPO_DIR/VERSION" "$sandbox/VERSION"
+    cp "$REPO_DIR/backend-scripts/common.sh" "$sandbox/backend-scripts/common.sh"
+    cp "$REPO_DIR/backend-scripts/qemu.sh" "$sandbox/backend-scripts/qemu.sh"
+    cp "$REPO_DIR/backend-scripts/host.sh" "$sandbox/backend-scripts/host.sh"
+    chmod +x "$sandbox/a11yctl"
+
+    before_version="$(tr -d '[:space:]' < "$sandbox/VERSION")"
+
+    cat > "$mockbin/curl" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+for arg in "$@"; do
+    if [[ "$arg" == http* ]] && [[ "$arg" == *"/VERSION"* ]]; then
+        printf '0.2.0\n'
+        exit 0
+    fi
+done
+
+exit 1
+EOF
+    chmod +x "$mockbin/curl"
+
+    output="$(PATH="$mockbin:$PATH" HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" self-update 2>&1)"
+    assert_equals "$?" "0" "self-update sem force retorna sucesso quando ja atualizado"
+    assert_contains "$output" "atualizado" "self-update sem force informa que ja esta atualizado"
+
+    after_version="$(tr -d '[:space:]' < "$sandbox/VERSION")"
+    assert_equals "$after_version" "$before_version" "self-update sem force nao altera VERSION quando ja atualizado"
+
+    rm -rf "$tmp"
+}
+
+run_self_update_no_force_remote_newer_test() {
+    local tmp sandbox home mockbin output
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+    mockbin="$tmp/mockbin"
+
+    mkdir -p "$sandbox/backend-scripts" "$home" "$mockbin"
+
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    cp "$REPO_DIR/ea11ctl" "$sandbox/ea11ctl"
+    cp "$REPO_DIR/a11yctl.ps1" "$sandbox/a11yctl.ps1"
+    cp "$REPO_DIR/a11yctl.cmd" "$sandbox/a11yctl.cmd"
+    cp "$REPO_DIR/ea11ctl.ps1" "$sandbox/ea11ctl.ps1"
+    cp "$REPO_DIR/ea11ctl.cmd" "$sandbox/ea11ctl.cmd"
+    cp "$REPO_DIR/install.sh" "$sandbox/install.sh"
+    cp "$REPO_DIR/install.ps1" "$sandbox/install.ps1"
+    cp "$REPO_DIR/VERSION" "$sandbox/VERSION"
+    cp "$REPO_DIR/backend-scripts/common.sh" "$sandbox/backend-scripts/common.sh"
+    cp "$REPO_DIR/backend-scripts/qemu.sh" "$sandbox/backend-scripts/qemu.sh"
+    cp "$REPO_DIR/backend-scripts/host.sh" "$sandbox/backend-scripts/host.sh"
+    chmod +x "$sandbox/a11yctl" "$sandbox/ea11ctl"
+
+    cat > "$mockbin/curl" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+out=""
+url=""
+
+while (($#)); do
+    case "$1" in
+        -o)
+            out="$2"
+            shift 2
+            ;;
+        --max-time|-H)
+            shift 2
+            ;;
+        -s|-S|-L|-f|-fsSL|-sSL)
+            shift
+            ;;
+        *)
+            if [[ "$1" == http* ]]; then
+                url="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+[[ -n "$url" ]] || exit 1
+
+if [[ "$url" == *"/commits/"* ]]; then
+    printf '{"sha":"mocksha456"}'
+    exit 0
+fi
+
+path="${url#*raw.githubusercontent.com/}"
+path="${path#*/}"
+path="${path#*/}"
+path="${path#*/}"
+path="${path%%\?*}"
+
+case "$path" in
+    VERSION)
+        content='8.8.8'
+        ;;
+    a11yctl)
+        content='#!/usr/bin/env bash
+echo "mock a11yctl newer"'
+        ;;
+    ea11ctl)
+        content='#!/usr/bin/env bash
+echo "mock ea11ctl newer"'
+        ;;
+    backend-scripts/common.sh)
+        content='#!/usr/bin/env bash
+echo "mock common newer"'
+        ;;
+    backend-scripts/qemu.sh)
+        content='#!/usr/bin/env bash
+echo "mock qemu newer"'
+        ;;
+    backend-scripts/host.sh)
+        content='#!/usr/bin/env bash
+echo "mock host newer"'
+        ;;
+    *)
+        content="# mock newer $path"
+        ;;
+esac
+
+if [[ -n "$out" ]]; then
+    mkdir -p "$(dirname "$out")"
+    printf '%s\n' "$content" > "$out"
+else
+    printf '%s\n' "$content"
+fi
+EOF
+    chmod +x "$mockbin/curl"
+
+    output="$(PATH="$mockbin:$PATH" HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" self-update 2>&1)"
+    assert_equals "$?" "0" "self-update sem force atualiza quando remoto e mais novo"
+    assert_contains "$output" "Atualizando a11yctl de v" "self-update sem force anuncia atualizacao"
+    assert_equals "$(tr -d '[:space:]' < "$sandbox/VERSION")" "8.8.8" "self-update sem force atualiza para versao remota"
+    assert_contains "$(cat "$sandbox/backend-scripts/qemu.sh")" "mock qemu newer" "self-update sem force atualiza backend script"
+
+    rm -rf "$tmp"
+}
+
 run_migrate_conflict_test
 run_wrapper_test
 run_no_legacy_test
@@ -287,6 +441,8 @@ run_migrate_alias_test
 run_unknown_command_test
 run_wrapper_invalid_command_test
 run_self_update_force_mock_test
+run_self_update_no_force_up_to_date_test
+run_self_update_no_force_remote_newer_test
 
 printf '\nResumo: %d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 
