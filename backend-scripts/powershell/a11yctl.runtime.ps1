@@ -4129,8 +4129,9 @@ function Invoke-A11CtlRuntime {
     param([string[]]$CommandArgs)
 
     $script:A11YCTL_EXIT_CODE = 0
+    $effectiveArgs = @($CommandArgs | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
 
-    if ($CommandArgs.Length -eq 0) {
+    if ($effectiveArgs.Length -eq 0) {
         # Modo interativo: nunca sair com erro por comando inválido
         try {
             Start-InteractiveShell
@@ -4142,7 +4143,7 @@ function Invoke-A11CtlRuntime {
     }
 
     try {
-        Invoke-RootCommand -Tokens $CommandArgs
+        Invoke-RootCommand -Tokens $effectiveArgs
         $script:A11YCTL_EXIT_CODE = 0
     } catch {
         Write-EA11Error $_.Exception.Message

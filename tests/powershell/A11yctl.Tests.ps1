@@ -17,7 +17,7 @@ function global:Get-TestScriptPath {
 function global:Invoke-ScriptWithHome {
     param(
         [Parameter(Mandatory = $true)][string]$ScriptPath,
-        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$HomePath
     )
 
@@ -126,6 +126,20 @@ Describe 'a11yctl PowerShell minimum tests' {
 
         $result.ExitCode | Should -Not -Be 0 -Because "Comando invalido deve falhar"
         $result.Output | Should -Match 'Comando desconhecido'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'argumento em branco e ignorado antes do comando valido' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('   ', 'version') -HomePath $testHome
+
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
+        $result.Output | Should -Match 'a11yctl v'
+        $result.Output | Should -Not -Match 'Comando desconhecido:'
 
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
