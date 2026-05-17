@@ -658,7 +658,7 @@ function Invoke-StateMigration {
 
     $directories = Get-ChildItem -Path $legacyDir -Recurse -Directory -Force -ErrorAction SilentlyContinue
     foreach ($directory in $directories) {
-        $relativePath = $directory.FullName.Substring($legacyDir.Length).TrimStart([char[]]@('\\', '/'))
+        $relativePath = $directory.FullName.Substring($legacyDir.Length).TrimStart([char[]]@([char]92, [char]47))
         if ([string]::IsNullOrWhiteSpace($relativePath)) {
             continue
         }
@@ -671,7 +671,7 @@ function Invoke-StateMigration {
 
     $files = Get-ChildItem -Path $legacyDir -Recurse -File -Force -ErrorAction SilentlyContinue
     foreach ($file in $files) {
-        $relativePath = $file.FullName.Substring($legacyDir.Length).TrimStart([char[]]@('\\', '/'))
+        $relativePath = $file.FullName.Substring($legacyDir.Length).TrimStart([char[]]@([char]92, [char]47))
         $destination = Join-Path $targetDir $relativePath
         $destinationDirectory = Split-Path -Path $destination -Parent
 
