@@ -311,33 +311,34 @@ Describe 'a11yctl PowerShell minimum tests' {
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+    It 'vm logs exibe logs de todas as VMs e por nome' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        $logDir = Join-Path $testHome '.a11yctl/logs'
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+
+        Set-Content -Path (Join-Path $logDir 'vm1.qemu.log') -Value 'log-vm1' -NoNewline
+        Set-Content -Path (Join-Path $logDir 'vm2.qemu.log') -Value 'log-vm2' -NoNewline
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'logs') -HomePath $testHome
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
+        $result.Output | Should -Match '==> Log: '
+        $result.Output | Should -Match 'log-vm1'
+        $result.Output | Should -Match 'log-vm2'
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'logs', '-n', 'vm1') -HomePath $testHome
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
+        $result.Output | Should -Match '==> Log da VM'
+        $result.Output | Should -Match 'log-vm1'
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'logs', '-n', 'inexistente') -HomePath $testHome
+        $result.ExitCode | Should -Not -Be 0 -Because 'log inexistente deve falhar'
+        $result.Output | Should -Match 'Nenhum log encontrado'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     It 'debug on, status e off funcionam com flag persistente' {
-            It 'vm logs exibe logs de todas as VMs e por nome' {
-                $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
-                $testHome = Join-Path $tmpRoot 'home'
-                $logDir = Join-Path $testHome '.a11yctl/logs'
-                New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-
-                Set-Content -Path (Join-Path $logDir 'vm1.qemu.log') -Value 'log-vm1' -NoNewline
-                Set-Content -Path (Join-Path $logDir 'vm2.qemu.log') -Value 'log-vm2' -NoNewline
-
-                $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'logs') -HomePath $testHome
-                $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
-                $result.Output | Should -Match '==> Log: '
-                $result.Output | Should -Match 'log-vm1'
-                $result.Output | Should -Match 'log-vm2'
-
-                $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'logs', '-n', 'vm1') -HomePath $testHome
-                $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
-                $result.Output | Should -Match '==> Log da VM'
-                $result.Output | Should -Match 'log-vm1'
-
-                $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'logs', '-n', 'inexistente') -HomePath $testHome
-                $result.ExitCode | Should -Not -Be 0 -Because 'log inexistente deve falhar'
-                $result.Output | Should -Match 'Nenhum log encontrado'
-
-                Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
-            }
         $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
         $testHome = Join-Path $tmpRoot 'home'
         New-Item -ItemType Directory -Path $testHome -Force | Out-Null

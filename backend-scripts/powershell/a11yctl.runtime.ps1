@@ -14,14 +14,12 @@ function Invoke-VmLogsCommand {
             Write-Host "==> Log da VM '$name': $logFile"
             Get-Content -Path $logFile
         } else {
-            Write-Host "Nenhum log encontrado para a VM '$name' em $logFile" -ForegroundColor Yellow
-            return 1
+            throw "Nenhum log encontrado para a VM '$name' em $logFile"
         }
     } else {
         $files = Get-ChildItem -Path $logDir -Filter '*.qemu.log' -File -ErrorAction SilentlyContinue
         if ($files.Count -eq 0) {
-            Write-Host "Nenhum log de VM encontrado em $logDir" -ForegroundColor Yellow
-            return 1
+            throw "Nenhum log de VM encontrado em $logDir"
         }
         foreach ($f in $files) {
             Write-Host "==> Log: $($f.FullName)"
@@ -3939,6 +3937,8 @@ function Start-InteractiveShell {
 function Invoke-A11CtlRuntime {
     param([string[]]$CommandArgs)
 
+    $script:A11YCTL_EXIT_CODE = 0
+
     if ($CommandArgs.Length -eq 0) {
         # Modo interativo: nunca sair com erro por comando inválido
         try {
@@ -3946,15 +3946,18 @@ function Invoke-A11CtlRuntime {
         } catch {
             Write-EA11Error $_.Exception.Message
         }
-        return 0
+        $script:A11YCTL_EXIT_CODE = 0
+        return
     }
 
     try {
         Invoke-RootCommand -Tokens $CommandArgs
+        $script:A11YCTL_EXIT_CODE = 0
     } catch {
         Write-EA11Error $_.Exception.Message
         Write-Host ''
         Show-Help
-        return 1
+        $script:A11YCTL_EXIT_CODE = 1
+        return
     }
 }
