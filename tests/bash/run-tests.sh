@@ -611,6 +611,114 @@ EOF
     rm -rf "$tmp"
 }
 
+run_vm_config_show_dispatch_test() {
+    local tmp sandbox home
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+
+    mkdir -p "$sandbox/backend-scripts" "$home"
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    chmod +x "$sandbox/a11yctl"
+
+    cat > "$sandbox/backend-scripts/common.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/host.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/qemu.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" > "${HOME}/vm-config-show.log"
+exit 0
+EOF
+    chmod +x "$sandbox/backend-scripts/qemu.sh" "$sandbox/backend-scripts/host.sh"
+
+    HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm config >/dev/null 2>&1
+    assert_equals "$?" "0" "vm config (show default) retorna sucesso"
+    assert_equals "$(cat "$home/vm-config-show.log")" "config show" "vm config sem acao despacha show"
+
+    rm -rf "$tmp"
+}
+
+run_vm_config_get_set_reset_dispatch_test() {
+    local tmp sandbox home
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+
+    mkdir -p "$sandbox/backend-scripts" "$home"
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    chmod +x "$sandbox/a11yctl"
+
+    cat > "$sandbox/backend-scripts/common.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/host.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/qemu.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" >> "${HOME}/vm-config-actions.log"
+exit 0
+EOF
+    chmod +x "$sandbox/backend-scripts/qemu.sh" "$sandbox/backend-scripts/host.sh"
+
+    HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm config get memory --raw >/dev/null 2>&1
+    assert_equals "$?" "0" "vm config get retorna sucesso"
+
+    HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm config set memory 4096 >/dev/null 2>&1
+    assert_equals "$?" "0" "vm config set retorna sucesso"
+
+    HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm config reset >/dev/null 2>&1
+    assert_equals "$?" "0" "vm config reset retorna sucesso"
+
+    local actions
+    actions="$(cat "$home/vm-config-actions.log")"
+    assert_contains "$actions" "config get memory --raw" "vm config get despacha argumentos"
+    assert_contains "$actions" "config set memory 4096" "vm config set despacha argumentos"
+    assert_contains "$actions" "config reset" "vm config reset despacha argumentos"
+
+    rm -rf "$tmp"
+}
+
+run_vm_config_backend_error_test() {
+    local tmp sandbox home output
+    tmp="$(mktemp -d -t a11yctl-bash-test-XXXXXX)"
+    sandbox="$tmp/sandbox"
+    home="$tmp/home"
+
+    mkdir -p "$sandbox/backend-scripts" "$home"
+    cp "$REPO_DIR/a11yctl" "$sandbox/a11yctl"
+    chmod +x "$sandbox/a11yctl"
+
+    cat > "$sandbox/backend-scripts/common.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/host.sh" << 'EOF'
+#!/usr/bin/env bash
+EOF
+    cat > "$sandbox/backend-scripts/qemu.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "config-fail" >&2
+exit 33
+EOF
+    chmod +x "$sandbox/backend-scripts/qemu.sh" "$sandbox/backend-scripts/host.sh"
+
+    set +e
+    output="$(HOME="$home" USERPROFILE="$home" bash "$sandbox/a11yctl" vm config get memory 2>&1)"
+    local status=$?
+    set -e
+
+    assert_equals "$status" "33" "vm config propaga codigo de erro do backend"
+    assert_contains "$output" "config-fail" "vm config exibe mensagem de erro do backend"
+
+    rm -rf "$tmp"
+}
+
 run_migrate_conflict_test
 run_wrapper_test
 run_no_legacy_test
@@ -626,6 +734,9 @@ run_vm_backend_error_propagation_test
 run_vm_list_reject_backend_option_test
 run_vm_status_dispatch_test
 run_vm_diagnose_dispatch_test
+run_vm_config_show_dispatch_test
+run_vm_config_get_set_reset_dispatch_test
+run_vm_config_backend_error_test
 
 printf '\nResumo: %d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 

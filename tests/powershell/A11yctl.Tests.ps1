@@ -249,4 +249,65 @@ Describe 'a11yctl PowerShell minimum tests' {
 
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    It 'vm config path retorna caminho do arquivo de configuracao' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'config', 'path') -HomePath $testHome
+
+        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
+        $result.Output | Should -Match '\.a11yctl.*/qemu/config\.env|\.a11yctl\\qemu\\config\.env'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'vm config set seguido de get --raw persiste valor' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+
+        $setResult = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'config', 'set', 'memory', '2048') -HomePath $testHome
+        $setResult.ExitCode | Should -Be 0 -Because "Saida do script: $($setResult.Output)"
+        $setResult.Output | Should -Match 'Configuração atualizada|Configuracao atualizada'
+
+        $getResult = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'config', 'get', 'memory', '--raw') -HomePath $testHome
+        $getResult.ExitCode | Should -Be 0 -Because "Saida do script: $($getResult.Output)"
+        $getResult.Output | Should -Match 'QEMU_MEMORY_MB=2048'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'vm config get com chave invalida falha' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'config', 'get', 'inexistente') -HomePath $testHome
+
+        $result.ExitCode | Should -Not -Be 0 -Because 'chave invalida em vm config get deve falhar'
+        $result.Output | Should -Match 'configuração desconhecida|configuracao desconhecida'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'vm config reset restaura memory para valor padrao' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
+        $testHome = Join-Path $tmpRoot 'home'
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+
+        $setResult = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'config', 'set', 'memory', '2048') -HomePath $testHome
+        $setResult.ExitCode | Should -Be 0 -Because "Saida do script: $($setResult.Output)"
+
+        $resetResult = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'config', 'reset') -HomePath $testHome
+        $resetResult.ExitCode | Should -Be 0 -Because "Saida do script: $($resetResult.Output)"
+        $resetResult.Output | Should -Match 'Configuracao resetada para defaults'
+
+        $getResult = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'config', 'get', 'memory', '--raw') -HomePath $testHome
+        $getResult.ExitCode | Should -Be 0 -Because "Saida do script: $($getResult.Output)"
+        $getResult.Output | Should -Match 'QEMU_MEMORY_MB=4096'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
