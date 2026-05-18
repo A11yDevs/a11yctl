@@ -1496,9 +1496,17 @@ function Get-QemuImageTagFromEnvState {
 
 function Resolve-GitHubLatestReleaseTag {
     param(
-        [string]$Owner = $EA11CTL_OWNER,
-        [string]$Repo = $EA11CTL_REPO
+        [Parameter(Mandatory=$true)]
+        [string]$Owner,
+        [Parameter(Mandatory=$true)]
+        [string]$Repo
     )
+
+    # Validar que os parâmetros não estejam vazios
+    if ([string]::IsNullOrWhiteSpace($Owner) -or [string]::IsNullOrWhiteSpace($Repo)) {
+        Write-EA11Warn "Resolve-GitHubLatestReleaseTag: Owner ou Repo está vazio. Owner='$Owner', Repo='$Repo'"
+        return 'latest'
+    }
 
     $url = "https://api.github.com/repos/$Owner/$Repo/releases/latest"
     try {
@@ -1549,6 +1557,14 @@ function Get-QemuVMVersionInfo {
     $sshUser = Get-OptionValue -Tokens $Tokens -Names @('--user', '-u') -Default 'a11ydevs'
     $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner') -Default $EA11_VM_RELEASE_OWNER
     $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo') -Default $EA11_VM_RELEASE_REPO
+
+    # Garantir que owner e repo não sejam vazios
+    if ([string]::IsNullOrWhiteSpace($owner)) {
+        $owner = $EA11_VM_RELEASE_OWNER
+    }
+    if ([string]::IsNullOrWhiteSpace($repo)) {
+        $repo = $EA11_VM_RELEASE_REPO
+    }
 
     $state = Load-QemuState -VMName $vmName
 
@@ -2357,6 +2373,14 @@ function Invoke-VMInstall {
     $tag = Get-OptionValue -Tokens $InstallArgs -Names @('--tag') -Default 'latest'
     $releaseBaseUrl = Get-OptionValue -Tokens $InstallArgs -Names @('--release-base-url') -Default $EA11CTL_RELEASE_BASE_URL
     $forceDownload = Has-Flag -Tokens $InstallArgs -Flags @('--force-download', '--force', '-f')
+
+    # Garantir que owner e repo não sejam vazios
+    if ([string]::IsNullOrWhiteSpace($owner)) {
+        $owner = $EA11_VM_RELEASE_OWNER
+    }
+    if ([string]::IsNullOrWhiteSpace($repo)) {
+        $repo = $EA11_VM_RELEASE_REPO
+    }
 
     $stateDir = Get-EA11StateDirectory
     $targetDisk = Join-Path $stateDir 'debian-a11ydevs.qcow2'
