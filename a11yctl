@@ -175,6 +175,123 @@ invoke_version_command() {
 }
 
 #################################################################################
+# Funções de Atualização
+#################################################################################
+
+invoke_self_update() {
+    local force=0
+    if has_flag --force "$@" || has_flag -f "$@"; then
+        force=1
+    fi
+    
+    local local_version
+    local_version=$(get_local_cli_version)
+    
+    if [[ $force -eq 0 ]]; then
+        local remote_version
+        remote_version=$(get_remote_cli_version) || true
+        
+        if [[ -z "$remote_version" ]]; then
+            ea11_warn "Não foi possível validar versão remota; prosseguindo com update."
+        else
+            local cmp
+            cmp=$(compare_semver "$remote_version" "$local_version")
+
+            if [[ "$cmp" == "0" ]]; then
+                ea11_info "a11yctl já está atualizado (v$local_version)."
+                return 0
+            fi
+
+            if [[ "$cmp" == "-1" ]]; then
+                ea11_info "a11yctl local (v$local_version) está à frente do remoto (v$remote_version)."
+                return 0
+            fi
+
+            ea11_info "Atualizando a11yctl de v$local_version para v$remote_version..."
+        fi
+    fi
+    
+    # Resolvendo a referência remota (commit SHA)
+    local resolved_ref="$EA11CTL_BRANCH"
+    local commit_sha
+    commit_sha=$(get_github_api_version) || true
+    
+    if [[ -n "$commit_sha" ]]; then
+        resolved_ref="$commit_sha"
+        ea11_info "Ref remoto resolvido para commit $resolved_ref"
+    else
+        ea11_warn "Não foi possível resolver SHA da branch; usando ref '$EA11CTL_BRANCH'."
+    fi
+    
+    local install_dir="$SCRIPT_DIR"
+    local tmp_dir
+    tmp_dir=$(mktemp -d -t a11yctl-update-XXXXXX)
+    trap "rm -rf '$tmp_dir'" EXIT
+    mkdir -p "$tmp_dir/backend-scripts"
+
+    local files=(a11yctl ea11ctl a11yctl.ps1 a11yctl.cmd ea11ctl.ps1 ea11ctl.cmd install.sh install.ps1 VERSION)
+    local backend_files=(backend-scripts/common.sh backend-scripts/qemu.sh backend-scripts/host.sh)
+    local cache_bust
+    cache_bust=$(date +%s)
+    
+    local download_ok=0
+    local last_error=""
+    
+    for ref in "$resolved_ref" "$EA11CTL_BRANCH"; do
+        ea11_info "Tentando download dos arquivos via ref '$ref'..."
+        download_ok=1
+        
+        for file in "${files[@]}" "${backend_files[@]}"; do
+            local dest="$tmp_dir/$file"
+            local url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$ref/$file?cb=$cache_bust"
+            
+            if ! curl -fsSL "$url" -o "$dest" 2>/dev/null; then
+                last_error="Falha ao baixar $file"
+                download_ok=0
+                break
+            fi
+        done
+        
+        if [[ $download_ok -eq 1 ]]; then
+            break
+        fi
+    done
+    
+    if [[ $download_ok -eq 0 ]]; then
+        ea11_error "Não foi possível baixar arquivos de update. Último erro: $last_error"
+        return 1
+    fi
+    
+    # Copiar os arquivos principais
+    for file in "${files[@]}"; do
+        local src="$tmp_dir/$file"
+        local dest="$install_dir/$file"
+        if [[ -f "$src" ]]; then
+            cp "$src" "$dest"
+            [[ "$file" == "a11yctl" ]] && chmod +x "$dest"
+        fi
+    done
+
+    # Copiar backend scripts para o diretório de instalação
+    mkdir -p "$install_dir/backend-scripts"
+    for file in "${backend_files[@]}"; do
+        local src="$tmp_dir/$file"
+        local dest="$install_dir/$file"
+        if [[ -f "$src" ]]; then
+            cp "$src" "$dest"
+        fi
+    done
+    chmod +x "$install_dir/backend-scripts/qemu.sh" \
+              "$install_dir/backend-scripts/host.sh" 2>/dev/null || true
+
+    sync_backend_scripts_from_remote || true
+    
+    local new_version
+    new_version=$(get_local_cli_version)
+    ea11_success "a11yctl atualizado para v$new_version"
+}
+
+#################################################################################
 # Funções Utilitárias
 #################################################################################
 
@@ -758,7 +875,7 @@ invoke_debug_command() {
 is_root_command_token() {
     local token="$1"
     case "$token" in
-        help|\?|version|--version|vm|host|status|debug|clear|exit|quit)
+        help|\?|version|--version|self-update|vm|host|status|debug|clear|exit|quit)
             return 0
             ;;
         *)
@@ -1215,6 +1332,9 @@ dispatch_host_command() {
         version|--version)
             invoke_version_command "$@"
             ;;
+        self-update)
+            invoke_self_update "$@"
+            ;;
         vm)
             invoke_vm_command "$@"
             ;;
@@ -1372,6 +1492,7 @@ a11yctl - CLI do projeto a11yctl [HOST]
 Uso:
   a11yctl help|-h|--help
   a11yctl version|--version [-c|--check-update]
+  a11yctl self-update [-f|--force]
   
   a11yctl vm install|-i [args-do-install-release-vm.sh]
   a11yctl vm version|-V [-n|--name VM]

@@ -125,6 +125,7 @@ Uso:
   a11yctl (abre modo interativo)
   a11yctl help|-h|--help
   a11yctl version|--version [-c|--check-update]
+  a11yctl self-update [-f|--force]
   
   a11yctl vm install|-i
     a11yctl vm version|-V [-n|--name VM] [-u|--user USER]
@@ -427,6 +428,142 @@ function Invoke-VersionCommand {
     catch {
         Write-EA11Warn "Nao foi possivel consultar versao remota: $($_.Exception.Message)"
     }
+}
+
+function Invoke-SelfUpdate {
+    param([string[]]$Tokens)
+
+    $force = Has-Flag -Tokens $Tokens -Flags @('--force', '-f')
+
+    $localVersion = Get-LocalCliVersion
+    if (-not $force) {
+        try {
+            $remoteVersion = Get-RemoteCliVersion
+            $cmp = Compare-SemVer -Left $remoteVersion -Right $localVersion
+
+            if ($cmp -eq 0) {
+                Write-EA11Info "a11yctl ja esta atualizado (v$localVersion)."
+                return
+            }
+
+            if ($cmp -lt 0) {
+                Write-EA11Info "a11yctl local (v$localVersion) esta a frente do remoto (v$remoteVersion)."
+                return
+            }
+
+            Write-EA11Info "Atualizando a11yctl de v$localVersion para v$remoteVersion..."
+        }
+        catch {
+            Write-EA11Warn "Nao foi possivel validar versao remota; prosseguindo com update."
+        }
+    }
+
+    # Atualiza os arquivos diretamente no diretorio de instalacao,
+    # sem depender do install.ps1 (evita quebra por mudanca de assinatura entre versoes).
+    # Usa SHA do commit da branch para evitar inconsistencias de cache no raw/main.
+    $installDir = $PSScriptRoot
+    $resolvedRef = $EA11CTL_BRANCH
+    try {
+        $resolvedRef = Get-RemoteBranchHeadSha
+        Write-EA11Info "Ref remoto resolvido para commit $resolvedRef"
+    }
+    catch {
+        Write-EA11Warn "Nao foi possivel resolver SHA da branch; usando ref '$EA11CTL_BRANCH'."
+    }
+
+    $files = @(
+        'a11yctl.ps1',
+        'a11yctl.cmd',
+        'a11yctl-reinstall.ps1',
+        'a11yctl-reinstall.cmd',
+        'a11yctl-uninstall.ps1',
+        'a11yctl-uninstall.cmd',
+        'ea11ctl.ps1',
+        'ea11ctl.cmd',
+        'install.ps1',
+        'VERSION',
+        'backend-scripts/powershell/a11yctl.runtime.ps1'
+    )
+
+    $cacheBust = Get-CacheBustValue
+    $refsToTry = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($resolvedRef)) {
+        [void]$refsToTry.Add($resolvedRef)
+    }
+    if ($resolvedRef -ne $EA11CTL_BRANCH) {
+        [void]$refsToTry.Add($EA11CTL_BRANCH)
+    }
+
+    $tmpDir = Join-Path (Get-TempDirectoryPath) ("a11yctl-update-" + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+
+    $downloadOk = $false
+    $lastErrorMessage = ''
+
+    try {
+        foreach ($ref in $refsToTry) {
+            try {
+                Write-EA11Info "Tentando download dos arquivos via ref '$ref'..."
+
+                foreach ($file in $files) {
+                    $dest = Join-Path $tmpDir $file
+                    $destDir = Split-Path -Path $dest -Parent
+                    if (-not [string]::IsNullOrWhiteSpace($destDir) -and (-not (Test-Path $destDir))) {
+                        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+                    }
+                    Write-EA11Info "Baixando $file..."
+                    Download-FileWithFallback -Owner $EA11CTL_OWNER -Repo $EA11CTL_REPO -Ref $ref -File $file -Destination $dest -CacheBust $cacheBust
+                }
+
+                $downloadedVersion = (Get-Content -Path (Join-Path $tmpDir 'VERSION') -Raw -ErrorAction Stop).Trim()
+                if ([string]::IsNullOrWhiteSpace($downloadedVersion)) {
+                    throw 'Arquivo VERSION baixado vazio.'
+                }
+
+                $downloadOk = $true
+                break
+            }
+            catch {
+                $lastErrorMessage = $_.Exception.Message
+                Write-EA11Warn "Falha no download via ref '$ref': $lastErrorMessage"
+            }
+        }
+
+        if (-not $downloadOk) {
+            throw "Nao foi possivel baixar arquivos de update. Ultimo erro: $lastErrorMessage"
+        }
+
+        $bom = [byte[]](0xEF, 0xBB, 0xBF)
+        foreach ($file in $files) {
+            $src = Join-Path $tmpDir $file
+            $dst = Join-Path $installDir $file
+            $dstDir = Split-Path -Path $dst -Parent
+            if (-not [string]::IsNullOrWhiteSpace($dstDir) -and (-not (Test-Path $dstDir))) {
+                New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+            }
+            if ($file -like '*.ps1') {
+                # Garante UTF-8 BOM para Windows PowerShell 5.x (sem BOM, PS5 lê como ANSI)
+                $bytes = [System.IO.File]::ReadAllBytes($src)
+                $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+                if (-not $hasBom) {
+                    $withBom = New-Object byte[] ($bom.Length + $bytes.Length)
+                    [Array]::Copy($bom, $withBom, $bom.Length)
+                    [Array]::Copy($bytes, 0, $withBom, $bom.Length, $bytes.Length)
+                    [System.IO.File]::WriteAllBytes($dst, $withBom)
+                } else {
+                    [System.IO.File]::WriteAllBytes($dst, $bytes)
+                }
+            } else {
+                Copy-Item -Path $src -Destination $dst -Force
+            }
+        }
+    }
+    finally {
+        Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $newVersion = (Get-Content -Path (Join-Path $installDir 'VERSION') -Raw -ErrorAction SilentlyContinue).Trim()
+    Write-Host "a11yctl atualizado para v$newVersion" -ForegroundColor Green
 }
 
 function Assert-Command {
@@ -3475,6 +3612,7 @@ function Invoke-RootCommand {
         'debug' { Invoke-DebugCommand -Tokens $rest }
         'version' { Invoke-VersionCommand -Tokens $rest }
         '--version' { Invoke-VersionCommand -Tokens $rest }
+        'self-update' { Invoke-SelfUpdate -Tokens $rest }
         'vm' { Invoke-VMCommand -Tokens $rest }
         'host' { Invoke-HostCommand -Tokens $rest }
         default {
@@ -3847,6 +3985,9 @@ function Is-SensitiveCommand {
             if ($Command.Length -ge 2 -and $Command[1] -in @('remove','-r','delete')) { return $true }
             if ($Command.Length -ge 3 -and $Command[1] -eq 'config' -and $Command[2] -eq 'reset') { return $true }
         }
+        'self-update' {
+            if (-not (Has-Flag -Tokens $Command -Flags @('--force','-f'))) { return $true }
+        }
     }
 
     return $false
@@ -3869,6 +4010,11 @@ function Show-SensitiveNotice {
 
     if ($Command.Length -ge 2 -and $Command[0] -eq 'vm' -in @('remove','-r','delete')) {
         Write-Host 'Esta ação pode remover arquivos da VM.'
+        return
+    }
+
+    if ($Command[0] -eq 'self-update') {
+        Write-Host 'Esta ação atualiza a CLI e altera arquivos locais da instalação.'
         return
     }
 
