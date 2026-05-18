@@ -863,8 +863,6 @@ invoke_debug_command() {
             fi
             ;;
         *)
-        root)
-            cat << 'EOF'
             echo "Valor inválido para debug: $mode"
             echo "Use: a11yctl debug on | off | status"
             return 1
