@@ -7,13 +7,17 @@ function global:Get-TestScriptPath {
 
     $testsDir = $PSScriptRoot
     $repoDir = (Resolve-Path (Join-Path $testsDir '..' '..')).Path
-    $path = Join-Path $repoDir $FileName
 
-    if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path $path)) {
-        throw "Arquivo de teste nao encontrado: $path"
+    $candidates = @(
+        (Join-Path $repoDir $FileName),
+        (Join-Path $repoDir 'launchers' $FileName)
+    )
+
+    foreach ($path in $candidates) {
+        if (Test-Path $path) { return $path }
     }
 
-    return $path
+    throw "Arquivo de teste nao encontrado: $FileName"
 }
 
 function global:Invoke-ScriptWithHome {

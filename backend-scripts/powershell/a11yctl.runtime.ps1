@@ -3659,7 +3659,6 @@ Exemplos:
 status
 start --headless
 start --debug
-diagnose -T -L 80
 ssh
 "@ | Write-Host
         }

@@ -345,7 +345,12 @@ main() {
     # Baixar arquivos
     for file in "${files[@]}"; do
         local dest="$install_dir/$file"
-        local url="$base_url/$file"
+        local url_path
+        case "$file" in
+            *.ps1) url_path="launchers/$file" ;;
+            *)     url_path="$file" ;;
+        esac
+        local url="$base_url/$url_path"
         
         if [[ -f "$dest" ]] && [[ $force_reinstall -eq 0 ]]; then
             print_info "Arquivo já existe (modo atualização): $file"
