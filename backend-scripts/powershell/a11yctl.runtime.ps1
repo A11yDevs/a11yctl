@@ -470,6 +470,17 @@ function Invoke-SelfUpdate {
         Write-EA11Warn "Nao foi possivel resolver SHA da branch; usando ref '$EA11CTL_BRANCH'."
     }
 
+    $launcherFiles = @{
+        'a11yctl.ps1'           = 'launchers/a11yctl.ps1'
+        'a11yctl.cmd'           = 'launchers/a11yctl.cmd'
+        'a11yctl-reinstall.ps1' = 'launchers/a11yctl-reinstall.ps1'
+        'a11yctl-reinstall.cmd' = 'launchers/a11yctl-reinstall.cmd'
+        'a11yctl-uninstall.ps1' = 'launchers/a11yctl-uninstall.ps1'
+        'a11yctl-uninstall.cmd' = 'launchers/a11yctl-uninstall.cmd'
+        'ea11ctl.ps1'           = 'launchers/ea11ctl.ps1'
+        'ea11ctl.cmd'           = 'launchers/ea11ctl.cmd'
+    }
+
     $files = @(
         'a11yctl.ps1',
         'a11yctl.cmd',
@@ -511,7 +522,8 @@ function Invoke-SelfUpdate {
                         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
                     }
                     Write-EA11Info "Baixando $file..."
-                    Download-FileWithFallback -Owner $EA11CTL_OWNER -Repo $EA11CTL_REPO -Ref $ref -File $file -Destination $dest -CacheBust $cacheBust
+                    $repoPath = if ($launcherFiles.ContainsKey($file)) { $launcherFiles[$file] } else { $file }
+                    Download-FileWithFallback -Owner $EA11CTL_OWNER -Repo $EA11CTL_REPO -Ref $ref -File $repoPath -Destination $dest -CacheBust $cacheBust
                 }
 
                 $downloadedVersion = (Get-Content -Path (Join-Path $tmpDir 'VERSION') -Raw -ErrorAction Stop).Trim()

@@ -243,7 +243,14 @@ invoke_self_update() {
         
         for file in "${files[@]}" "${backend_files[@]}"; do
             local dest="$tmp_dir/$file"
-            local url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$ref/$file?cb=$cache_bust"
+            local url_path
+            case "$file" in
+                a11yctl.ps1|a11yctl.cmd|ea11ctl.ps1|ea11ctl.cmd)
+                    url_path="launchers/$file" ;;
+                *)
+                    url_path="$file" ;;
+            esac
+            local url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$ref/$url_path?cb=$cache_bust"
             
             if ! curl -fsSL "$url" -o "$dest" 2>/dev/null; then
                 last_error="Falha ao baixar $file"
