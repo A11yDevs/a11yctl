@@ -81,6 +81,8 @@ $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'a11yctl'
 $EA11CTL_BRANCH = 'main'
 $EA11CTL_RELEASE_BASE_URL = 'https://argmap.inf.ufg.br/a11ydevs'
+$EA11_VM_RELEASE_OWNER = 'A11yDevs'
+$EA11_VM_RELEASE_REPO = 'emacs-a11y-vm'
 $A11YCTL_PRIMARY_COMMAND = 'a11yctl'
 $A11YCTL_LEGACY_COMMAND = 'ea11ctl'
 $A11YCTL_STATE_DIRNAME = '.a11yctl'
@@ -1507,8 +1509,8 @@ function Get-QemuVMVersionInfo {
 
     $vmName = Get-VMName -Tokens $Tokens
     $sshUser = Get-OptionValue -Tokens $Tokens -Names @('--user', '-u') -Default 'a11ydevs'
-    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner') -Default $EA11CTL_OWNER
-    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo') -Default $EA11CTL_REPO
+    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner') -Default $EA11_VM_RELEASE_OWNER
+    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo') -Default $EA11_VM_RELEASE_REPO
 
     $state = Load-QemuState -VMName $vmName
 
@@ -2306,8 +2308,8 @@ function Get-RepoRoot {
 function Invoke-VMInstall {
     param([string[]]$InstallArgs)
 
-    $owner = Get-OptionValue -Tokens $InstallArgs -Names @('--owner') -Default $EA11CTL_OWNER
-    $repo = Get-OptionValue -Tokens $InstallArgs -Names @('--repo') -Default $EA11CTL_REPO
+    $owner = Get-OptionValue -Tokens $InstallArgs -Names @('--owner') -Default $EA11_VM_RELEASE_OWNER
+    $repo = Get-OptionValue -Tokens $InstallArgs -Names @('--repo') -Default $EA11_VM_RELEASE_REPO
     $tag = Get-OptionValue -Tokens $InstallArgs -Names @('--tag') -Default 'latest'
     $releaseBaseUrl = Get-OptionValue -Tokens $InstallArgs -Names @('--release-base-url') -Default $EA11CTL_RELEASE_BASE_URL
     $forceDownload = Has-Flag -Tokens $InstallArgs -Flags @('--force-download', '--force', '-f')
@@ -2373,6 +2375,26 @@ function Invoke-VMInstall {
 
     if (-not $downloaded) {
         throw "Falha ao baixar imagem QCOW2 da release: $lastError"
+    }
+
+    $resolvedTag = if ($tag -eq 'latest') {
+        Resolve-GitHubLatestReleaseTag -Owner $owner -Repo $repo
+    }
+    else {
+        $tag
+    }
+
+    $existingState = Load-QemuState -VMName 'debian-a11y'
+    Save-QemuState -VMName 'debian-a11y' -State @{
+        name = 'debian-a11y'
+        backend = 'qemu'
+        pid = if ($existingState) { $existingState.pid } else { $null }
+        sshPort = if ($existingState -and $existingState.sshPort) { $existingState.sshPort } else { 2222 }
+        sshUser = if ($existingState -and $existingState.sshUser) { $existingState.sshUser } else { 'a11ydevs' }
+        systemDisk = $targetDisk
+        userDataDisk = if ($existingState) { $existingState.userDataDisk } else { $null }
+        imageTag = $resolvedTag
+        lastStatus = if ($existingState -and $existingState.lastStatus) { $existingState.lastStatus } else { 'stopped' }
     }
 
     Write-EA11Info "Imagem QEMU instalada em: $targetDisk"
@@ -2718,6 +2740,7 @@ function Invoke-QemuVMStart {
         sshUser = 'a11ydevs'
         systemDisk = $systemDisk
         userDataDisk = $userDataDisk
+        imageTag = if ($existing -and $existing.imageTag) { $existing.imageTag } else { $null }
         homeMount = '/home'
         stdoutLog = $stdoutLog
         stderrLog = $stderrLog
@@ -2782,6 +2805,7 @@ function Invoke-QemuVMStop {
             sshUser = $state.sshUser
             systemDisk = $state.systemDisk
             userDataDisk = $state.userDataDisk
+            imageTag = $state.imageTag
             homeMount = '/home'
             stdoutLog = $state.stdoutLog
             stderrLog = $state.stderrLog
@@ -2821,6 +2845,7 @@ function Invoke-QemuVMStop {
         sshUser = $state.sshUser
         systemDisk = $state.systemDisk
         userDataDisk = $state.userDataDisk
+        imageTag = $state.imageTag
         homeMount = '/home'
         stdoutLog = $state.stdoutLog
         stderrLog = $state.stderrLog

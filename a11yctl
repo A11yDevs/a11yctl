@@ -1038,6 +1038,10 @@ resolve_context_command() {
                 RESOLVE_NEXT_CONTEXT='vm_host_share'
                 return 0
             fi
+            if [[ "$first" == 'version' ]] || [[ "$first" == '-V' ]] || [[ "$first" == 'check-update' ]] || [[ "$first" == '-U' ]]; then
+                RESOLVED_COMMAND=(vm "$@")
+                return 0
+            fi
             if is_root_command_token "$first"; then
                 RESOLVED_COMMAND=("$@")
             else
