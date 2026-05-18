@@ -842,6 +842,8 @@ is_debug_enabled() {
 
 invoke_debug_command() {
     local mode="${1:-status}"
+    local flag_file
+    flag_file="$(get_debug_flag_file)"
 
     case "$mode" in
         on|1|true)
