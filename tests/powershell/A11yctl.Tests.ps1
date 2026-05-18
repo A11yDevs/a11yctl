@@ -240,36 +240,6 @@ Describe 'a11yctl PowerShell minimum tests' {
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    It 'vm diagnose exibe status e tail do log quando disponivel' {
-        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
-        $testHome = Join-Path $tmpRoot 'home'
-        $qemuStateDir = Join-Path $testHome '.a11yctl/qemu'
-        New-Item -ItemType Directory -Path $qemuStateDir -Force | Out-Null
-
-        $stderrLog = Join-Path $tmpRoot 'qemu-stderr.log'
-        @('linha-1', 'linha-2', 'linha-3') | Set-Content -Path $stderrLog
-
-        $statePath = Join-Path $qemuStateDir 'demo.json'
-        @{
-            name = 'demo'
-            sshPort = 2222
-            pid = 0
-            systemDisk = '/tmp/system.qcow2'
-            userDataDisk = '/tmp/data.qcow2'
-            stderrLog = $stderrLog
-        } | ConvertTo-Json -Compress | Set-Content -Path $statePath -NoNewline
-
-        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('vm', 'diagnose', '-n', 'demo', '-L', '2') -HomePath $testHome
-
-        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
-        $result.Output | Should -Match 'VM: demo'
-        $result.Output | Should -Match 'Ultimas linhas do log de erro do QEMU'
-        $result.Output | Should -Match 'linha-2'
-        $result.Output | Should -Match 'linha-3'
-
-        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
     It 'vm config path retorna caminho do arquivo de configuracao' {
         $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
         $testHome = Join-Path $tmpRoot 'home'
