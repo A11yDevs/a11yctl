@@ -906,7 +906,6 @@ function Get-DefaultQemuRuntimeConfig {
 
     return @{
         QEMU_ACCEL        = $accel
-            @"
         QEMU_CPU_MODEL    = $cpuModel
         QEMU_CPUS         = 4
         QEMU_MEMORY_MB    = 4096
