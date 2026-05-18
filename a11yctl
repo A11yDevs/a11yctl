@@ -655,12 +655,10 @@ invoke_vm_command() {
             invoke_vm_stop "$@" ;;
         close|-c)
             invoke_vm_close "$@" ;;
-        remove|-r|delete)
+        remove|-r)
             invoke_vm_remove "$@" ;;
         status|-q)
             invoke_vm_status "$@" ;;
-        diagnose|-d)
-            invoke_vm_diagnose "$@" ;;
         ssh|-x)
             invoke_vm_ssh "$@" ;;
         share-folder|-F)
@@ -908,9 +906,6 @@ normalize_aliases() {
         return 0
     fi
 
-    if [[ "$context" == 'vm' ]] && [[ "${NORMALIZED_TOKENS[0]}" == 'delete' ]]; then
-        NORMALIZED_TOKENS[0]='remove'
-    fi
 }
 
 resolve_context_command() {
@@ -1083,8 +1078,6 @@ start          inicia a VM
 stop           para a VM
 close          fecha a VM com timeout
 remove         remove a VM
-delete         remove a VM (alias)
-diagnose       diagnostica a VM
 status         mostra status da VM
 ssh            conecta via SSH
 host-share     gerencia compartilhamento do host
@@ -1177,7 +1170,7 @@ is_sensitive_command() {
             fi
             ;;
         vm)
-            if [[ "${cmd[1]:-}" == 'remove' ]] || [[ "${cmd[1]:-}" == '-r' ]] || [[ "${cmd[1]:-}" == 'delete' ]]; then
+            if [[ "${cmd[1]:-}" == 'remove' ]] || [[ "${cmd[1]:-}" == '-r' ]]; then
                 return 0
             fi
             if [[ "${cmd[1]:-}" == 'config' ]] && [[ "${cmd[2]:-}" == 'reset' ]]; then
@@ -1212,7 +1205,7 @@ show_sensitive_notice() {
         return 0
     fi
 
-    if [[ "${cmd[0]}" == 'vm' ]] && ([[ "${cmd[1]:-}" == 'remove' ]] || [[ "${cmd[1]:-}" == '-r' ]] || [[ "${cmd[1]:-}" == 'delete' ]]); then
+    if [[ "${cmd[0]}" == 'vm' ]] && ([[ "${cmd[1]:-}" == 'remove' ]] || [[ "${cmd[1]:-}" == '-r' ]]); then
         echo 'Esta ação pode remover arquivos da VM.'
         return 0
     fi
@@ -1262,7 +1255,7 @@ list_context_commands() {
             printf '%s\n' help '?' version self-update vm host status debug clear exit quit
             ;;
         vm)
-            printf '%s\n' help '?' install version check-update list start stop close remove delete diagnose status ssh host-share config optimize debug back exit quit clear
+            printf '%s\n' help '?' install version check-update list start stop close remove status ssh host-share config optimize logs debug back exit quit clear
             ;;
         vm_config)
             printf '%s\n' help '?' show --raw list get set path reset debug back exit quit clear
@@ -1499,8 +1492,7 @@ Uso:
     a11yctl vm start|-s [-n|--name VM] [-h|--headless] [--debug]
   a11yctl vm stop|-S [-n|--name VM] [-f|--force]
   a11yctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS]
-  a11yctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
-  a11yctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N]
+  a11yctl vm remove|-r [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
   a11yctl vm status|-q [-n|--name VM]
   a11yctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
   a11yctl vm host-share|-H list

@@ -134,7 +134,7 @@ Uso:
     a11yctl vm start|-s [-n|--name VM] [-h|--headless] [--debug]
   a11yctl vm stop|-S [-n|--name VM] [-f|--force]
   a11yctl vm close|-c [-n|--name VM]
-  a11yctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
+  a11yctl vm remove|-r [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
   a11yctl vm host-share|-H list
     a11yctl vm logs [-n|--name VM]
     a11yctl vm config [show|--raw|list|path|reset|help]
@@ -142,7 +142,6 @@ Uso:
     a11yctl vm config set CHAVE VALOR
     a11yctl vm config set CHAVE=VALOR [CHAVE=VALOR ...]
   a11yctl vm optimize
-  a11yctl vm diagnose|-d [-n|--name VM] [-L|--lines N]
   a11yctl vm status|-q [-n|--name VM]
   a11yctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
 
@@ -3559,7 +3558,7 @@ function Invoke-VMCommand {
         { $_ -in @('close', '-c') } {
             Invoke-QemuVMStop -Tokens $rest
         }
-        { $_ -in @('remove', '-r', 'delete') } {
+        { $_ -in @('remove', '-r') } {
             Invoke-QemuVMRemove -Tokens $rest
         }
         'config' {
@@ -3567,9 +3566,6 @@ function Invoke-VMCommand {
         }
         'optimize' {
             Invoke-QemuVMOptimize
-        }
-        { $_ -in @('diagnose', '-d') } {
-            Invoke-QemuVMDiagnose -Tokens $rest
         }
         { $_ -in @('status', '-q') } {
             Invoke-QemuVMStatus -Tokens $rest
@@ -3648,8 +3644,6 @@ start          inicia a VM
 stop           para a VM
 close          fecha a VM
 remove         remove a VM
-delete         remove a VM (alias)
-diagnose       diagnostica a VM
 status         mostra status da VM
 ssh            conecta via SSH
 host-share     entra em compartilhamento do host
@@ -3751,7 +3745,7 @@ function Get-ContextCommandList {
     param([string]$Context)
 
     switch ($Context) {
-        'vm' { return @('help','?','install','version','check-update','list','start','stop','close','remove','delete','diagnose','status','ssh','host-share','config','optimize','logs','debug','back','exit','quit','clear') }
+        'vm' { return @('help','?','install','version','check-update','list','start','stop','close','remove','status','ssh','host-share','config','optimize','logs','debug','back','exit','quit','clear') }
         'vm_config' { return @('help','?','show','--raw','list','get','set','path','reset','debug','back','exit','quit','clear') }
         'vm_host_share' { return @('help','?','list','debug','back','exit','quit','clear') }
         'host' { return @('help','?','install','debug','back','exit','quit','clear') }
@@ -3829,10 +3823,6 @@ function Normalize-InteractiveAliases {
     }
 
     $normalized = @($Tokens)
-
-    if ($Context -eq 'vm' -and $normalized[0] -eq 'delete') {
-        $normalized[0] = 'remove'
-    }
 
     return $normalized
 }
@@ -3977,7 +3967,7 @@ function Is-SensitiveCommand {
             if ($Command.Length -ge 2 -and $Command[1] -in @('install','-i')) { return $true }
         }
         'vm' {
-            if ($Command.Length -ge 2 -and $Command[1] -in @('remove','-r','delete')) { return $true }
+            if ($Command.Length -ge 2 -and $Command[1] -in @('remove','-r')) { return $true }
             if ($Command.Length -ge 3 -and $Command[1] -eq 'config' -and $Command[2] -eq 'reset') { return $true }
         }
         'self-update' {
@@ -4003,7 +3993,7 @@ function Show-SensitiveNotice {
         return
     }
 
-    if ($Command.Length -ge 2 -and $Command[0] -eq 'vm' -in @('remove','-r','delete')) {
+    if ($Command.Length -ge 2 -and $Command[0] -eq 'vm' -in @('remove','-r')) {
         Write-Host 'Esta ação pode remover arquivos da VM.'
         return
     }
