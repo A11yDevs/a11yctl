@@ -7,8 +7,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $commandArgs = @($CommandArgs)
 $homeDir = if (-not [string]::IsNullOrWhiteSpace($env:HOME)) { $env:HOME } else { $env:USERPROFILE }
+$runtimeRelativePath = 'backend-scripts/powershell/a11yctl.runtime.ps1'
 $runtimeCandidates = @(
-    (Join-Path $PSScriptRoot 'backend-scripts/powershell/a11yctl.runtime.ps1'),
+    (Join-Path $PSScriptRoot $runtimeRelativePath),
     (Join-Path $homeDir '.a11yctl/scripts/powershell/a11yctl.runtime.ps1')
 )
 
@@ -17,6 +18,25 @@ foreach ($candidate in $runtimeCandidates) {
     if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
         $runtimeScript = $candidate
         break
+    }
+}
+
+if (-not $runtimeScript -and -not [string]::IsNullOrWhiteSpace($homeDir)) {
+    $fallbackRuntime = Join-Path $homeDir '.a11yctl/scripts/powershell/a11yctl.runtime.ps1'
+    $fallbackDir = Split-Path -Path $fallbackRuntime -Parent
+    $runtimeUrl = "https://raw.githubusercontent.com/A11yDevs/a11yctl/main/$runtimeRelativePath"
+
+    try {
+        if (-not (Test-Path $fallbackDir)) {
+            New-Item -ItemType Directory -Path $fallbackDir -Force | Out-Null
+        }
+
+        Invoke-WebRequest -Uri $runtimeUrl -OutFile $fallbackRuntime -UseBasicParsing
+        if (Test-Path $fallbackRuntime) {
+            $runtimeScript = $fallbackRuntime
+        }
+    }
+    catch {
     }
 }
 

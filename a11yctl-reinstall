@@ -3,6 +3,28 @@ set -euo pipefail
 
 # Script de reinstalação rápida do a11yctl (Bash)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_URL='https://raw.githubusercontent.com/A11yDevs/a11yctl/main/install.sh'
+
+download_and_run_latest_install() {
+    local tmp
+    tmp="$(mktemp -t a11yctl-install-XXXXXX.sh)"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$INSTALL_URL" -o "$tmp"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$tmp" "$INSTALL_URL"
+    else
+        return 1
+    fi
+
+    bash "$tmp"
+    rm -f "$tmp"
+    return 0
+}
+
+if download_and_run_latest_install; then
+    exit 0
+fi
 
 if [[ -f "$SCRIPT_DIR/install.sh" ]]; then
     bash "$SCRIPT_DIR/install.sh"
