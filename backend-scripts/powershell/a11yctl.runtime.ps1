@@ -166,9 +166,20 @@ function Get-LocalCliVersion {
 }
 
 function Get-RemoteCliVersion {
+    $releaseUrl = "https://api.github.com/repos/$EA11CTL_OWNER/$EA11CTL_REPO/releases/latest"
+    try {
+        $releaseResponse = Invoke-WebRequest -Uri $releaseUrl -Headers (Get-GitHubApiHeaders) -UseBasicParsing
+        $releaseJson = $releaseResponse.Content | ConvertFrom-Json
+        if ($releaseJson -and -not [string]::IsNullOrWhiteSpace([string]$releaseJson.tag_name)) {
+            return ([string]$releaseJson.tag_name).TrimStart('v').Trim()
+        }
+    }
+    catch {
+    }
+
     $remoteVersionUrl = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/VERSION"
     $content = Invoke-WebRequest -Uri $remoteVersionUrl -Headers (Get-GitHubRawHeaders) -UseBasicParsing
-    return $content.Content.Trim()
+    return $content.Content.Trim().TrimStart('v')
 }
 
 function Get-GitHubApiHeaders {

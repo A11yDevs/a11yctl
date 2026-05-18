@@ -71,6 +71,13 @@ compare_semver() {
 
     echo 0
 }
+
+normalize_semver() {
+    local value="$1"
+    value="${value#v}"
+    value="${value%%-*}"
+    printf '%s\n' "$value"
+}
 ea11_warn() {
     printf '\033[33m[a11yctl] %s\033[0m\n' "$*" >&2
 }
@@ -101,11 +108,23 @@ get_local_cli_version() {
 }
 
 get_remote_cli_version() {
-    local url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/VERSION"
-    local result
+    local release_url="https://api.github.com/repos/$EA11CTL_OWNER/$EA11CTL_REPO/releases/latest"
+    local release_json remote_tag url result
+
+    release_json=$(curl -s --max-time 8 \
+        -H 'Accept: application/vnd.github+json' \
+        "$release_url" 2>/dev/null || echo '')
+
+    remote_tag=$(printf '%s\n' "$release_json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    if [[ -n "$remote_tag" ]]; then
+        normalize_semver "$remote_tag"
+        return 0
+    fi
+
+    url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/VERSION"
     result=$(curl -s --max-time 5 "$url" 2>/dev/null || echo '')
     if [[ -n "$result" ]]; then
-        echo "$result" | tr -d '[:space:]'
+        normalize_semver "$(echo "$result" | tr -d '[:space:]')"
     else
         echo ""
     fi
