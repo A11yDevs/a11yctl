@@ -842,8 +842,6 @@ is_debug_enabled() {
 
 invoke_debug_command() {
     local mode="${1:-status}"
-    local flag_file
-    flag_file="$(get_debug_flag_file)"
 
     case "$mode" in
         on|1|true)
@@ -865,6 +863,8 @@ invoke_debug_command() {
             fi
             ;;
         *)
+        root)
+            cat << 'EOF'
             echo "Valor inválido para debug: $mode"
             echo "Use: a11yctl debug on | off | status"
             return 1
@@ -1261,7 +1261,7 @@ list_context_commands() {
     local context="$1"
     case "$context" in
         root)
-            printf '%s\n' help '?' version self-update update migrate migrate-state uninstall vm host status debug clear exit quit
+            printf '%s\n' help '?' version self-update vm host status debug clear exit quit
             ;;
         vm)
             printf '%s\n' help '?' install version check-update list start stop close remove delete diagnose status ssh host-share config optimize debug back exit quit clear

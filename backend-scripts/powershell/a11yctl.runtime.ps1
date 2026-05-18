@@ -883,7 +883,6 @@ function Get-DefaultQemuRuntimeConfig {
     $isWindowsHost = Test-IsWindowsHost
     $isMacHost = Test-IsMacOSHost
 
-    $accel = 'tcg'
     $cpuModel = 'host'
 
     if ($isMacHost) {
@@ -907,6 +906,7 @@ function Get-DefaultQemuRuntimeConfig {
 
     return @{
         QEMU_ACCEL        = $accel
+            @"
         QEMU_CPU_MODEL    = $cpuModel
         QEMU_CPUS         = 4
         QEMU_MEMORY_MB    = 4096
@@ -3760,7 +3760,7 @@ function Get-ContextCommandList {
         'vm_config' { return @('help','?','show','--raw','list','get','set','path','reset','debug','back','exit','quit','clear') }
         'vm_host_share' { return @('help','?','list','debug','back','exit','quit','clear') }
         'host' { return @('help','?','install','debug','back','exit','quit','clear') }
-        default { return @('help','?','version','self-update','update','migrate','migrate-state','uninstall','vm','host','status','debug','clear','exit','quit') }
+        default { return @('help','?','version','self-update','vm','host','status','debug','clear','exit','quit') }
     }
 }
 
