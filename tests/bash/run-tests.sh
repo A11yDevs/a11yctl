@@ -328,13 +328,17 @@ run_self_update_no_force_up_to_date_test() {
 
     before_version="$(tr -d '[:space:]' < "$sandbox/VERSION")"
 
-    cat > "$mockbin/curl" << 'EOF'
+    cat > "$mockbin/curl" << EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-for arg in "$@"; do
-    if [[ "$arg" == http* ]] && [[ "$arg" == *"/VERSION"* ]]; then
-        printf '0.2.0\n'
+for arg in "\$@"; do
+    if [[ "\$arg" == http* ]] && [[ "\$arg" == *"/releases/latest"* ]]; then
+        printf '{"tag_name":"v%s"}\n' "$before_version"
+        exit 0
+    fi
+    if [[ "\$arg" == http* ]] && [[ "\$arg" == *"/VERSION"* ]]; then
+        printf '%s\n' "$before_version"
         exit 0
     fi
 done
