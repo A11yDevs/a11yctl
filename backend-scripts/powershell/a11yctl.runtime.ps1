@@ -1467,6 +1467,33 @@ function Load-QemuState {
     return ($raw | ConvertFrom-Json)
 }
 
+function Get-QemuImageTagFromEnvState {
+    param([string]$VMName)
+
+    $envStatePath = Join-Path (Get-QemuStateDirectory) "$VMName.env"
+    if (-not (Test-Path $envStatePath)) {
+        return $null
+    }
+
+    try {
+        $line = Get-Content -Path $envStatePath -ErrorAction Stop | Where-Object { $_ -match '^IMAGE_TAG=' } | Select-Object -First 1
+        if ([string]::IsNullOrWhiteSpace([string]$line)) {
+            return $null
+        }
+
+        $value = ([string]$line).Substring('IMAGE_TAG='.Length).Trim()
+        $value = $value.Trim('"').Trim("'")
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            return $null
+        }
+
+        return $value
+    }
+    catch {
+        return $null
+    }
+}
+
 function Resolve-GitHubLatestReleaseTag {
     param(
         [string]$Owner = $EA11CTL_OWNER,
@@ -1528,6 +1555,12 @@ function Get-QemuVMVersionInfo {
     $localTag = 'unknown'
     if ($state -and $state.imageTag) {
         $localTag = [string]$state.imageTag
+    }
+    elseif ($state -eq $null) {
+        $envTag = Get-QemuImageTagFromEnvState -VMName $vmName
+        if (-not [string]::IsNullOrWhiteSpace($envTag)) {
+            $localTag = $envTag
+        }
     }
 
     $latestTag = Resolve-GitHubLatestReleaseTag -Owner $owner -Repo $repo

@@ -249,6 +249,7 @@ ensure_qemu_installed() {
 }
 
 install_backend_scripts() {
+    local install_dir="${1:-}"
     local backend_dir="$HOME/.a11yctl/scripts"
     local local_backend_dir=""
     if [[ -n "$SCRIPT_DIR" ]]; then
@@ -267,8 +268,26 @@ install_backend_scripts() {
         fi
     done
 
+    # Runtime PowerShell para uso via a11yctl.ps1 (fallback em ~/.a11yctl/scripts)
+    local ps_runtime_rel="powershell/a11yctl.runtime.ps1"
+    ensure_directory "$backend_dir/powershell"
+    if [[ -n "$local_backend_dir" ]] && [[ -f "$local_backend_dir/$ps_runtime_rel" ]]; then
+        cp "$local_backend_dir/$ps_runtime_rel" "$backend_dir/$ps_runtime_rel"
+    else
+        download_file "$remote_backend_url/$ps_runtime_rel" "$backend_dir/$ps_runtime_rel" "$ps_runtime_rel"
+    fi
+
     chmod +x "$backend_dir/qemu.sh" "$backend_dir/host.sh" "$backend_dir/common.sh"
     print_info "Scripts de backend instalados em: $backend_dir"
+
+    # Se o instalador está escrevendo em um diretório de binários, instala runtime local
+    # para que a11yctl.ps1 funcione sem depender do diretório de estado.
+    if [[ -n "$install_dir" ]]; then
+        local install_runtime_dir="$install_dir/backend-scripts/powershell"
+        ensure_directory "$install_runtime_dir"
+        cp "$backend_dir/$ps_runtime_rel" "$install_runtime_dir/a11yctl.runtime.ps1"
+        print_info "Runtime PowerShell instalado em: $install_runtime_dir"
+    fi
 }
 
 #################################################################################
@@ -308,6 +327,8 @@ main() {
     declare -a files=(
         "a11yctl"
         "ea11ctl"
+        "a11yctl.ps1"
+        "ea11ctl.ps1"
         "a11yctl-reinstall"
         "a11yctl-uninstall"
         "install.sh"
@@ -355,7 +376,7 @@ main() {
         fi
     fi
 
-    install_backend_scripts
+    install_backend_scripts "$install_dir"
     
     # Adicionar ao PATH se necessário
     add_to_path_if_needed "$install_dir"

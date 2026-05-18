@@ -6,9 +6,21 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $commandArgs = @($CommandArgs)
-$runtimeScript = Join-Path $PSScriptRoot 'backend-scripts/powershell/a11yctl.runtime.ps1'
+$homeDir = if (-not [string]::IsNullOrWhiteSpace($env:HOME)) { $env:HOME } else { $env:USERPROFILE }
+$runtimeCandidates = @(
+    (Join-Path $PSScriptRoot 'backend-scripts/powershell/a11yctl.runtime.ps1'),
+    (Join-Path $homeDir '.a11yctl/scripts/powershell/a11yctl.runtime.ps1')
+)
 
-if (-not (Test-Path $runtimeScript)) {
+$runtimeScript = $null
+foreach ($candidate in $runtimeCandidates) {
+    if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
+        $runtimeScript = $candidate
+        break
+    }
+}
+
+if (-not $runtimeScript) {
     Write-Host '[a11yctl] Runtime do PowerShell nao encontrado. Reinstale a CLI.' -ForegroundColor Red
     exit 1
 }
