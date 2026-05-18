@@ -169,6 +169,7 @@ Ensure-QemuInstalled
 $installDir = Get-InstallDirectory
 $legacyInstallDir = Get-LegacyInstallDirectory
 $legacyStateDir = Get-LegacyStateDirectory
+$homeDir = Get-UserHomeDirectory
 Ensure-Directory -Path $installDir
 $backendScriptsDir = Join-Path $installDir 'backend-scripts'
 $backendPowershellDir = Join-Path $backendScriptsDir 'powershell'
@@ -244,7 +245,6 @@ foreach ($file in $files) {
     }
 }
 
-$legacyStateDir = Join-Path $homeDir '.emacs-a11y-vm'
 $migrationMarker = Join-Path $homeDir '.a11yctl/.migration-done'
 
 if ((Test-Path $legacyStateDir) -and (-not (Test-Path $migrationMarker))) {
@@ -252,12 +252,12 @@ if ((Test-Path $legacyStateDir) -and (-not (Test-Path $migrationMarker))) {
     try {
         $runtimePath = Join-Path $installDir 'backend-scripts/powershell/a11yctl.runtime.ps1'
         . $runtimePath
-        Invoke-A11CtlRuntime -CommandArgs @('migrate-state', '--quiet')
+        Invoke-StateMigration -Quiet | Out-Null
         Write-Info 'Migracao automatica do estado legado concluida.'
     }
     catch {
         Write-WarnMsg "Falha na migracao automatica do estado legado: $($_.Exception.Message)"
-        Write-WarnMsg 'Voce pode tentar manualmente depois com: a11yctl migrate-state'
+        Write-WarnMsg 'A migracao automatica sera tentada novamente em uma futura reinstalacao.'
     }
 }
 elseif (Test-Path $migrationMarker) {
