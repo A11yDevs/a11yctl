@@ -1,3 +1,5 @@
+$env:NO_COLOR = '1'
+
 Set-StrictMode -Version Latest
 
 function global:Get-TestScriptPath {
