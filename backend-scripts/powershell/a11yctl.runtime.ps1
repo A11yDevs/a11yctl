@@ -751,6 +751,16 @@ function Invoke-StateMigration {
     }
 
     $targetDir = Get-EA11StateDirectory
+    $migrationMarker = Join-Path $targetDir '.migration-done'
+
+    # Verificar se a migração já foi realizada
+    if (Test-Path $migrationMarker) {
+        if (-not $Quiet) {
+            Write-EA11Info "Migracao ja foi realizada anteriormente. Pulando."
+        }
+        return $true
+    }
+
     $copiedCount = 0
     $renamedCount = 0
 
@@ -785,6 +795,9 @@ function Invoke-StateMigration {
         Copy-Item -LiteralPath $file.FullName -Destination $destination
         $copiedCount++
     }
+
+    # Criar marcador de migração concluída
+    New-Item -ItemType File -Path $migrationMarker -Force | Out-Null
 
     if (-not $Quiet) {
         Write-EA11Info "Migracao concluida: $copiedCount arquivo(s) copiado(s), $renamedCount conflito(s) resolvido(s) com .migrated."

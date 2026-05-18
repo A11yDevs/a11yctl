@@ -366,7 +366,9 @@ main() {
     print_info "Permissões de execução aplicadas"
 
     local legacy_state_dir="$HOME/.emacs-a11y-vm"
-    if [[ -d "$legacy_state_dir" ]]; then
+    local migration_marker="$HOME/.a11yctl/.migration-done"
+    
+    if [[ -d "$legacy_state_dir" ]] && [[ ! -f "$migration_marker" ]]; then
         print_warn "Diretorio legado detectado em: $legacy_state_dir"
         print_warn "Tentando migrar automaticamente para ~/.a11yctl sem apagar o diretorio antigo..."
         if "$install_dir/a11yctl" migrate-state --quiet; then
@@ -374,6 +376,8 @@ main() {
         else
             print_warn "Falha na migracao automatica. Execute manualmente: a11yctl migrate-state"
         fi
+    elif [[ -f "$migration_marker" ]]; then
+        print_info "Migracao do estado legado ja foi realizada anteriormente."
     fi
 
     install_backend_scripts "$install_dir"

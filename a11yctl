@@ -364,7 +364,7 @@ resolve_migration_conflict_path() {
 
 invoke_state_migration() {
     local quiet="${1:-0}"
-    local legacy_dir target_dir copied_count renamed_count
+    local legacy_dir target_dir copied_count renamed_count migration_marker
 
     legacy_dir="$(get_legacy_ea11_state_directory)"
     if [[ ! -d "$legacy_dir" ]]; then
@@ -375,6 +375,15 @@ invoke_state_migration() {
     fi
 
     target_dir="$(get_ea11_state_directory)"
+    migration_marker="$target_dir/.migration-done"
+
+    # Verificar se a migração já foi realizada
+    if [[ -f "$migration_marker" ]]; then
+        if [[ "$quiet" -ne 1 ]]; then
+            ea11_info "Migracao ja foi realizada anteriormente. Pulando."
+        fi
+        return 0
+    fi
     copied_count=0
     renamed_count=0
 
@@ -401,6 +410,9 @@ invoke_state_migration() {
         cp -p "$file" "$dest"
         copied_count=$((copied_count + 1))
     done < <(find "$legacy_dir" -type f -print0)
+
+    # Criar marcador de migração concluída
+    touch "$migration_marker"
 
     if [[ "$quiet" -ne 1 ]]; then
         ea11_info "Migracao concluida: ${copied_count} arquivo(s) copiado(s), ${renamed_count} conflito(s) resolvido(s) com .migrated."

@@ -244,7 +244,10 @@ foreach ($file in $files) {
     }
 }
 
-if (Test-Path $legacyStateDir) {
+$legacyStateDir = Join-Path $homeDir '.emacs-a11y-vm'
+$migrationMarker = Join-Path $homeDir '.a11yctl/.migration-done'
+
+if ((Test-Path $legacyStateDir) -and (-not (Test-Path $migrationMarker))) {
     Write-Info "Diretorio legado detectado em: $legacyStateDir"
     try {
         $runtimePath = Join-Path $installDir 'backend-scripts/powershell/a11yctl.runtime.ps1'
@@ -256,6 +259,9 @@ if (Test-Path $legacyStateDir) {
         Write-WarnMsg "Falha na migracao automatica do estado legado: $($_.Exception.Message)"
         Write-WarnMsg 'Voce pode tentar manualmente depois com: a11yctl migrate-state'
     }
+}
+elseif (Test-Path $migrationMarker) {
+    Write-Info 'Migracao do estado legado ja foi realizada anteriormente.'
 }
 
 $pathChanged = Add-ToUserPath -PathToAdd $installDir
