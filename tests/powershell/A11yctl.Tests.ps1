@@ -49,26 +49,26 @@ function global:Invoke-ScriptWithHome {
 }
 
 Describe 'a11yctl PowerShell minimum tests' {
-    It 'migrate-state copia legado sem sobrescrever e preserva origem' {
+    It 'comandos legados removidos retornam erro claro' {
         $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
         $testHome = Join-Path $tmpRoot 'home'
-        $legacy = Join-Path $testHome '.emacs-a11y-vm'
-        $target = Join-Path $testHome '.a11yctl'
-
-        New-Item -ItemType Directory -Path (Join-Path $legacy 'qemu') -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $target 'qemu') -Force | Out-Null
-
-        Set-Content -Path (Join-Path $legacy 'debian-a11ydevs.qcow2') -Value 'legacy-disk' -NoNewline
-        Set-Content -Path (Join-Path $target 'debian-a11ydevs.qcow2') -Value 'current-disk' -NoNewline
-        Set-Content -Path (Join-Path $legacy 'qemu/debian-a11y.json') -Value '{"name":"debian-a11y"}' -NoNewline
+        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
 
         $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('migrate-state', '--quiet') -HomePath $testHome
+        $result.ExitCode | Should -Not -Be 0 -Because 'migrate-state foi removido'
+        $result.Output | Should -Match 'Comando desconhecido'
 
-        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
-        (Get-Content -Path (Join-Path $target 'debian-a11ydevs.qcow2') -Raw) | Should -Be 'current-disk'
-        Test-Path (Join-Path $target 'debian-a11ydevs.migrated.qcow2') | Should -BeTrue
-        (Get-Content -Path (Join-Path $target 'debian-a11ydevs.migrated.qcow2') -Raw) | Should -Be 'legacy-disk'
-        Test-Path (Join-Path $legacy 'debian-a11ydevs.qcow2') | Should -BeTrue
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('migrate', '--quiet') -HomePath $testHome
+        $result.ExitCode | Should -Not -Be 0 -Because 'migrate foi removido'
+        $result.Output | Should -Match 'Comando desconhecido'
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('uninstall') -HomePath $testHome
+        $result.ExitCode | Should -Not -Be 0 -Because 'uninstall foi removido'
+        $result.Output | Should -Match 'Comando desconhecido'
+
+        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('update') -HomePath $testHome
+        $result.ExitCode | Should -Not -Be 0 -Because 'alias update foi removido'
+        $result.Output | Should -Match 'Comando desconhecido'
 
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -87,35 +87,7 @@ Describe 'a11yctl PowerShell minimum tests' {
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    It 'migrate-state sem legado nao falha' {
-        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
-        $testHome = Join-Path $tmpRoot 'home'
-        New-Item -ItemType Directory -Path $testHome -Force | Out-Null
 
-        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('migrate-state', '--quiet') -HomePath $testHome
-
-        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
-
-        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
-    It 'alias migrate tambem executa migracao de estado' {
-        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
-        $testHome = Join-Path $tmpRoot 'home'
-        $legacy = Join-Path $testHome '.emacs-a11y-vm'
-        $target = Join-Path $testHome '.a11yctl'
-
-        New-Item -ItemType Directory -Path $legacy -Force | Out-Null
-        New-Item -ItemType Directory -Path $target -Force | Out-Null
-        Set-Content -Path (Join-Path $legacy 'debian-a11ydevs.qcow2') -Value 'legacy-disk' -NoNewline
-
-        $result = Invoke-ScriptWithHome -ScriptPath (Get-TestScriptPath -FileName 'a11yctl.ps1') -Arguments @('migrate', '--quiet') -HomePath $testHome
-
-        $result.ExitCode | Should -Be 0 -Because "Saida do script: $($result.Output)"
-        Test-Path (Join-Path $target 'debian-a11ydevs.qcow2') | Should -BeTrue
-
-        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
 
     It 'comando invalido retorna erro e mensagem clara' {
         $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("a11yctl-ps-test-" + [Guid]::NewGuid().ToString('N'))
