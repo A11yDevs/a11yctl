@@ -1055,8 +1055,6 @@ Comandos disponíveis:
 
 version       mostra a versão do a11yctl
 self-update   atualiza o a11yctl
-migrate       migra o estado legado para ~/.a11yctl
-migrate-state alias de migrate
 vm            entra no contexto de VM
 host          entra no contexto de instalação nativa
 status        mostra o status da VM padrão
@@ -1186,7 +1184,7 @@ is_sensitive_command() {
                 return 0
             fi
             ;;
-        self-update|update)
+        self-update)
             for ((i=1; i<${#cmd[@]}; i++)); do
                 if [[ "${cmd[$i]}" == '--force' ]] || [[ "${cmd[$i]}" == '-f' ]]; then
                     return 1

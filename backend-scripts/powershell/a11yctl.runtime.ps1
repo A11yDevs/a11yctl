@@ -3728,10 +3728,6 @@ Comandos disponíveis:
 
 version       mostra a versão do a11yctl
 self-update   atualiza o a11yctl
-update        alias de self-update
-migrate       migra o estado legado para ~/.a11yctl
-migrate-state alias de migrate
-uninstall     desinstala a CLI local
 vm            entra no contexto de VM
 host          entra no contexto de instalação nativa
 status        mostra o status da VM padrão
@@ -3819,7 +3815,7 @@ function Test-ContextHasCommand {
 function Is-RootToken {
     param([string]$Token)
 
-    return $Token -in @('help','?','version','--version','self-update','update','migrate','migrate-state','uninstall','vm','host','status','debug','clear','exit','quit')
+    return $Token -in @('help','?','version','--version','self-update','vm','host','status','debug','clear','exit','quit')
 }
 
 function Normalize-InteractiveAliases {
