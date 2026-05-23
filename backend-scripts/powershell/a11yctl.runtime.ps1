@@ -696,12 +696,18 @@ function Assert-NoBackendOption {
 }
 
 function Get-HomeDirectoryPath {
+    # Preferir USERPROFILE no Windows evita valores HOME herdados de Git/MSYS/WSL,
+    # que podem vir como /c/Users/... ou /Users/... e quebrar caminhos nativos do QEMU.
+    if ((Test-IsWindowsHost) -and (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE))) {
+        return ([System.IO.Path]::GetFullPath($env:USERPROFILE))
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($env:HOME)) {
-        return $env:HOME
+        return ([System.IO.Path]::GetFullPath($env:HOME))
     }
 
     if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
-        return $env:USERPROFILE
+        return ([System.IO.Path]::GetFullPath($env:USERPROFILE))
     }
 
     throw "Nao foi possivel detectar o diretorio HOME do usuario."
@@ -712,7 +718,26 @@ function Get-LegacyEA11StateDirectory {
 }
 
 function Get-EA11StateDirectory {
-    $base = Join-Path (Get-HomeDirectoryPath) $A11YCTL_STATE_DIRNAME
+    # Permite mover o estado da VM para um caminho sem espaços, se o usuário quiser:
+    #   $env:EA11CTL_STATE_DIR = 'C:\ea11ctl'
+    #   $env:EA11CTL_HOME      = 'C:\ea11ctl'
+    # Sem essas variáveis, mantém compatibilidade com ~/.emacs-a11y-vm.
+    $override = $null
+
+    if (-not [string]::IsNullOrWhiteSpace($env:EA11CTL_STATE_DIR)) {
+        $override = $env:EA11CTL_STATE_DIR
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:EA11CTL_HOME)) {
+        $override = $env:EA11CTL_HOME
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($override)) {
+        $base = [System.IO.Path]::GetFullPath($override)
+    }
+    else {
+        $base = Join-Path (Get-HomeDirectoryPath) '.emacs-a11y-vm'
+    }
+
     if (-not (Test-Path $base)) {
         New-Item -ItemType Directory -Path $base -Force | Out-Null
     }
@@ -901,7 +926,8 @@ function Get-DefaultQemuRuntimeConfig {
         $cpuModel = 'host'
     }
     elseif ($isWindowsHost) {
-        $accel = 'whpx'
+        # No Windows, 'auto' tenta WHPX com fallback para TCG quando o host/QEMU nao aceita bem o acelerador.
+        $accel = 'auto'
         $cpuModel = 'qemu64'
     }
     else {
@@ -925,7 +951,7 @@ function Get-DefaultQemuRuntimeConfig {
         QEMU_DISK_CACHE   = 'writeback'
         QEMU_DISK_DISCARD = 'unmap'
         QEMU_VIDEO_DEVICE = 'virtio-vga'
-        QEMU_FULLSCREEN   = 'on'
+        QEMU_FULLSCREEN   = 'off'
     }
 }
 
@@ -1171,18 +1197,88 @@ function Assert-ConfigValue {
             return $null
         }
         'accel' {
-            $valid = @('hvf','kvm','tcg','whpx','none')
+            $valid = @('auto','hvf','kvm','tcg','whpx','none')
             if ($valid -contains $Value.ToLowerInvariant()) { return $Value.ToLowerInvariant() }
             Write-Host "Erro: valor inválido para 'accel'." -ForegroundColor Red
             Write-Host ''
             Write-Host "Valor recebido: $Value"
-            Write-Host 'Valores conhecidos: hvf, kvm, tcg, whpx, none'
+            Write-Host 'Valores conhecidos: auto, hvf, kvm, tcg, whpx, none'
             Write-Host ''
             Write-Host 'Exemplos:'
-            Write-Host '  a11yctl vm config set accel hvf'
-            Write-Host '  a11yctl vm config set accel kvm'
+            Write-Host '  a11yctl vm config set accel auto'
+            Write-Host '  a11yctl vm config set accel whpx'
             Write-Host '  a11yctl vm config set accel tcg'
             return $null
+        }
+        'disk-if' {
+            $valid = @('virtio','ide','scsi','sata','none')
+            $norm = $Value.ToLowerInvariant()
+            if ($valid -contains $norm) { return $norm }
+            Write-Host "Erro: valor inválido para 'disk-if'." -ForegroundColor Red
+            Write-Host ''
+            Write-Host "Valor recebido: $Value"
+            Write-Host 'Valores aceitos: virtio, ide, scsi, sata, none'
+            Write-Host 'Observação: std não é interface de disco válida no QEMU.'
+            Write-Host ''
+            Write-Host 'Exemplos:'
+            Write-Host '  a11yctl vm config set disk-if virtio'
+            Write-Host '  a11yctl vm config set disk-if ide'
+            return $null
+        }
+        'disk-cache' {
+            $valid = @('none','writeback','writethrough','directsync','unsafe')
+            $norm = $Value.ToLowerInvariant()
+            if ($valid -contains $norm) { return $norm }
+            Write-Host "Erro: valor inválido para 'disk-cache'." -ForegroundColor Red
+            Write-Host ''
+            Write-Host "Valor recebido: $Value"
+            Write-Host 'Valores aceitos: none, writeback, writethrough, directsync, unsafe'
+            Write-Host ''
+            Write-Host 'Exemplos:'
+            Write-Host '  a11yctl vm config set disk-cache writeback'
+            Write-Host '  a11yctl vm config set disk-cache writethrough'
+            return $null
+        }
+        'disk-discard' {
+            $valid = @('unmap','ignore')
+            $norm = $Value.ToLowerInvariant()
+            if ($valid -contains $norm) { return $norm }
+            Write-Host "Erro: valor inválido para 'disk-discard'." -ForegroundColor Red
+            Write-Host ''
+            Write-Host "Valor recebido: $Value"
+            Write-Host 'Valores aceitos: unmap, ignore'
+            Write-Host ''
+            Write-Host 'Exemplos:'
+            Write-Host '  a11yctl vm config set disk-discard unmap'
+            Write-Host '  a11yctl vm config set disk-discard ignore'
+            return $null
+        }
+        'video' {
+            $norm = $Value.Trim()
+            switch ($norm.ToLowerInvariant()) {
+                'std'        { return 'std' }
+                'vga'        { return 'VGA' }
+                'none'       { return 'none' }
+                'virtio-std' { return 'virtio-vga' }
+                'virtio-vga' { return 'virtio-vga' }
+                'qxl'        { return 'qxl-vga' }
+                'qxl-vga'    { return 'qxl-vga' }
+                'cirrus'     { return 'cirrus-vga' }
+                'cirrus-vga' { return 'cirrus-vga' }
+                default {
+                    Write-Host "Erro: valor inválido para 'video'." -ForegroundColor Red
+                    Write-Host ''
+                    Write-Host "Valor recebido: $Value"
+                    Write-Host 'Valores aceitos: virtio-vga, virtio-std, std, VGA, qxl-vga, cirrus-vga, none'
+                    # Write-Host 'Observação: std é convertido para -vga std, não para -device std.'
+                    Write-Host ''
+                    Write-Host 'Exemplos:'
+                    Write-Host '  a11yctl vm config set video virtio-vga'
+                    Write-Host '  a11yctl vm config set video std'
+                    Write-Host ''
+                    return $null
+                }
+            }
         }
         default { return $Value }
     }
@@ -1243,10 +1339,14 @@ function Show-QemuConfigList {
             $unitSuffix = if ([string]::IsNullOrWhiteSpace($limit.Unit)) { '' } else { " $($limit.Unit)" }
             Write-Host "  Máximo disponível: $($limit.Max)$unitSuffix ($($limit.Label))"
         }
-        if ($fkey -in 'fullscreen','accel') {
+        if ($fkey -in 'fullscreen','accel','disk-if','disk-cache','disk-discard','video') {
             switch ($fkey) {
                 'fullscreen' { Write-Host '  Valores aceitos: on, off' }
-                'accel'      { Write-Host '  Valores aceitos: hvf, kvm, tcg, whpx, none' }
+                'accel'       { Write-Host '  Valores aceitos: auto, hvf, kvm, tcg, whpx, none' }
+                'disk-if'     { Write-Host '  Valores aceitos: virtio, ide, scsi, sata, none' }
+                'disk-cache'  { Write-Host '  Valores aceitos: none, writeback, writethrough, directsync, unsafe' }
+                'disk-discard'{ Write-Host '  Valores aceitos: unmap, ignore' }
+                'video'       { Write-Host '  Valores aceitos: virtio-vga, virtio-std, std, VGA, qxl-vga, cirrus-vga, none' }
             }
         }
         Write-Host "  Exemplo: a11yctl vm config set $fkey $currentVal"
@@ -1724,12 +1824,22 @@ function Resolve-QemuSystemExecutable {
 }
 
 function Resolve-HostUserName {
+    # No Windows, USER pode vir de ambientes Unix-like e não representar o perfil real.
+    # USERNAME é o nome da conta; se faltar, usamos o nome da pasta do perfil.
+    if ((Test-IsWindowsHost) -and (-not [string]::IsNullOrWhiteSpace($env:USERNAME))) {
+        return $env:USERNAME
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($env:USER)) {
         return $env:USER
     }
 
     if (-not [string]::IsNullOrWhiteSpace($env:USERNAME)) {
         return $env:USERNAME
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        return (Split-Path -Path $env:USERPROFILE -Leaf)
     }
 
     return $null
@@ -1741,15 +1851,35 @@ function Get-QemuHostHomeShareConfig {
         return $null
     }
 
-    $candidatePaths = @(
-        "/Users/$hostUser",
-        "/home/$hostUser"
-    )
+    $candidatePaths = New-Object System.Collections.Generic.List[string]
+
+    if (-not [string]::IsNullOrWhiteSpace($env:EA11CTL_HOST_HOME)) {
+        [void]$candidatePaths.Add($env:EA11CTL_HOST_HOME)
+    }
+
+    if (Test-IsWindowsHost) {
+        if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+            [void]$candidatePaths.Add($env:USERPROFILE)
+        }
+        [void]$candidatePaths.Add((Join-Path 'C:\Users' $hostUser))
+        [void]$candidatePaths.Add("/Users/$hostUser")
+    }
+    else {
+        if (-not [string]::IsNullOrWhiteSpace($env:HOME)) {
+            [void]$candidatePaths.Add($env:HOME)
+        }
+        [void]$candidatePaths.Add("/Users/$hostUser")
+        [void]$candidatePaths.Add("/home/$hostUser")
+    }
 
     $hostPath = $null
     foreach ($candidate in $candidatePaths) {
-        if (Test-Path $candidate) {
-            $hostPath = $candidate
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+
+        if (Test-Path -LiteralPath $candidate) {
+            $hostPath = [System.IO.Path]::GetFullPath($candidate)
             break
         }
     }
@@ -1759,11 +1889,15 @@ function Get-QemuHostHomeShareConfig {
     }
 
     $safeUser = ($hostUser -replace '[^a-zA-Z0-9_-]', '_')
+    if ([string]::IsNullOrWhiteSpace($safeUser)) {
+        $safeUser = 'hosthome'
+    }
+
     return @{
         HostUser = $hostUser
-        HostPath = $hostPath
+        HostPath = (ConvertTo-QemuSmbPath -Path $hostPath)
         MountTag = "hosthome_$safeUser"
-        GuestMountPoint = "/home/$hostUser"
+        GuestMountPoint = "/home/$safeUser"
     }
 }
 
@@ -1816,6 +1950,14 @@ function Get-QemuAvailableAudioDrivers {
 
 function Test-QemuVirtfsSupport {
     param([string]$QemuExecutable)
+
+    # No Windows, o runtime deve usar SMB como mecanismo de compartilhamento.
+    # Muitas builds do QEMU para Windows nao possuem virtfs/9p funcional e podem
+    # encerrar no start com: "virtfs support is disabled".
+    # Portanto, nao fazemos probe nem permitimos 9p no host Windows.
+    if (Test-IsWindowsHost) {
+        return $false
+    }
 
     try {
         $helpOutput = & $QemuExecutable -help 2>&1
@@ -1924,6 +2066,87 @@ function Get-QemuUserNetSmbSupportInfo {
     }
 }
 
+
+function Get-QemuVideoArgs {
+    param([string]$VideoDevice)
+
+    if ([string]::IsNullOrWhiteSpace($VideoDevice)) {
+        return @()
+    }
+
+    $video = $VideoDevice.Trim()
+    switch ($video.ToLowerInvariant()) {
+        'none'       { return @() }
+        'std'        { return @('-vga', 'std') }
+        'vga'        { return @('-device', 'VGA') }
+        'virtio-std' { return @('-device', 'virtio-vga') }
+        default      { return @('-device', $video) }
+    }
+}
+
+function Normalize-QemuStartupConfigValue {
+    param(
+        [string]$FriendlyKey,
+        [string]$Value,
+        [string]$Fallback
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Fallback
+    }
+
+    switch ($FriendlyKey) {
+        'accel' {
+            $norm = $Value.ToLowerInvariant()
+            if (@('auto','hvf','kvm','tcg','whpx','none') -contains $norm) { return $norm }
+            Write-EA11Warn "Config accel inválida ('$Value'). Usando '$Fallback'."
+            return $Fallback
+        }
+        'disk-if' {
+            $norm = $Value.ToLowerInvariant()
+            if (@('virtio','ide','scsi','sata','none') -contains $norm) { return $norm }
+            Write-EA11Warn "Config disk-if inválida ('$Value'). Usando '$Fallback'."
+            return $Fallback
+        }
+        'disk-cache' {
+            $norm = $Value.ToLowerInvariant()
+            if (@('none','writeback','writethrough','directsync','unsafe') -contains $norm) { return $norm }
+            Write-EA11Warn "Config disk-cache inválida ('$Value'). Usando '$Fallback'."
+            return $Fallback
+        }
+        'disk-discard' {
+            $norm = $Value.ToLowerInvariant()
+            if (@('unmap','ignore') -contains $norm) { return $norm }
+            Write-EA11Warn "Config disk-discard inválida ('$Value'). Usando '$Fallback'."
+            return $Fallback
+        }
+        'video' {
+            switch ($Value.ToLowerInvariant()) {
+                'std'        { return 'std' }
+                'vga'        { return 'VGA' }
+                'none'       { return 'none' }
+                'virtio-std' { return 'virtio-vga' }
+                'virtio-vga' { return 'virtio-vga' }
+                'qxl'        { return 'qxl-vga' }
+                'qxl-vga'    { return 'qxl-vga' }
+                'cirrus'     { return 'cirrus-vga' }
+                'cirrus-vga' { return 'cirrus-vga' }
+                default {
+                    Write-EA11Warn "Config video inválida ('$Value'). Usando '$Fallback'."
+                    return $Fallback
+                }
+            }
+        }
+        'fullscreen' {
+            $norm = ConvertTo-FullscreenNormalized -Value $Value
+            if ($null -ne $norm) { return $norm }
+            Write-EA11Warn "Config fullscreen inválida ('$Value'). Usando '$Fallback'."
+            return $Fallback
+        }
+        default { return $Value }
+    }
+}
+
 function New-QemuBaseArgs {
     param(
         [int]$Memory,
@@ -1945,7 +2168,6 @@ function New-QemuBaseArgs {
         [string]$HostSmbPassword
     )
 
-    # IMPORTANTE:
     # Start-Process recebe ArgumentList como array. Portanto cada item abaixo ja e
     # passado como um argumento separado para o qemu-system-*.
     # Nao coloque aspas internas em file=..., mesmo quando o caminho tem espacos.
@@ -1962,11 +2184,9 @@ function New-QemuBaseArgs {
         '-monitor', 'none'
     )
 
-    if (-not [string]::IsNullOrWhiteSpace($VideoDevice)) {
-        $args += @('-device', $VideoDevice)
-    }
+    $args += Get-QemuVideoArgs -VideoDevice $VideoDevice
 
-    if (($HostHomeShareMode -eq '9p') -and $HostHomeShare) {
+    if ((-not (Test-IsWindowsHost)) -and ($HostHomeShareMode -eq '9p') -and $HostHomeShare) {
         # Mesmo motivo dos discos: nao inserir aspas internas. O argumento inteiro
         # ja e uma unica string no array do Start-Process.
         $args += @(
@@ -2151,9 +2371,111 @@ function Test-IsWindowsHost {
     return ($env:OS -eq 'Windows_NT')
 }
 
+function ConvertTo-QemuSmbPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # QEMU no Windows aceita melhor separadores "/" nos parâmetros usernet/SMB.
+    # Mantém espaços, hífens e símbolos; quem protege o argumento é o launcher.
+    if (Test-IsWindowsHost) {
+        return ($Path -replace '\\', '/')
+    }
+
+    return $Path
+}
+
+function ConvertTo-WindowsNativeArgument {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Argument
+    )
+
+    # Regras compatíveis com CommandLineToArgvW:
+    # - argumento vazio precisa virar ""
+    # - espaços, tabs e aspas exigem aspas externas
+    # - barras invertidas antes de aspas ou no final precisam ser duplicadas
+    if ($Argument.Length -eq 0) {
+        return '""'
+    }
+
+    if ($Argument -notmatch '[\s"]') {
+        return $Argument
+    }
+
+    $result = New-Object System.Text.StringBuilder
+    [void]$result.Append('"')
+    $backslashes = 0
+
+    foreach ($ch in $Argument.ToCharArray()) {
+        if ($ch -eq '\') {
+            $backslashes++
+            continue
+        }
+
+        if ($ch -eq '"') {
+            [void]$result.Append(('\' * (($backslashes * 2) + 1)))
+            [void]$result.Append('"')
+            $backslashes = 0
+            continue
+        }
+
+        if ($backslashes -gt 0) {
+            [void]$result.Append(('\' * $backslashes))
+            $backslashes = 0
+        }
+
+        [void]$result.Append($ch)
+    }
+
+    if ($backslashes -gt 0) {
+        [void]$result.Append(('\' * ($backslashes * 2)))
+    }
+
+    [void]$result.Append('"')
+    return $result.ToString()
+}
+
+function ConvertTo-NativeQemuArgumentList {
+    param([string[]]$QemuArgs)
+
+    # Windows PowerShell junta arrays de ArgumentList com espaços.
+    # Sem esta conversão, caminhos como "Nome - Nome Número " viram:
+    # C:\Users\Nome | - | Nome | Número
+    # e o QEMU recebe "-" como opção inválida.
+    if (Test-IsWindowsHost) {
+        return (($QemuArgs | ForEach-Object {
+            ConvertTo-WindowsNativeArgument -Argument ([string]$_)
+        }) -join ' ')
+    }
+
+    return $QemuArgs
+}
+
+function Format-QemuCommandLine {
+    param(
+        [string]$QemuExecutable,
+        [string[]]$QemuArgs
+    )
+
+    $exe = if (Test-IsWindowsHost) {
+        ConvertTo-WindowsNativeArgument -Argument $QemuExecutable
+    }
+    else {
+        $QemuExecutable
+    }
+
+    $argsText = ConvertTo-NativeQemuArgumentList -QemuArgs $QemuArgs
+
+    if ($argsText -is [array]) {
+        return (($exe, $argsText) -join ' ')
+    }
+
+    return "$exe $argsText"
+}
+
 function Install-EA11VMShortcut {
     param(
-        [string]$ShortcutName = 'EA11 VM.lnk',
+        [string]$ShortcutName = 'A11Y VM.lnk',
         [string]$VMName = 'debian-a11y'
     )
 
@@ -2198,7 +2520,7 @@ function Install-EA11VMShortcut {
             $shortcut.TargetPath = $powershellExe
             $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" vm start --name `"$VMName`""
             $shortcut.WorkingDirectory = Split-Path -Path $scriptPath -Parent
-            $shortcut.Description = 'Iniciar a VM EA11 pelo QEMU'
+            $shortcut.Description = 'Iniciar a VM A11Y pelo QEMU'
             $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,13"
             $shortcut.Save()
         }
@@ -2403,7 +2725,7 @@ function Invoke-VMInstall {
         Write-EA11Info "Imagem QCOW2 ja existe em: $targetDisk"
         Write-EA11Info "Use --force-download para baixar novamente."
         Install-EA11VMShortcut -VMName 'debian-a11y'
-        Write-EA11Info "Proximo passo: use o atalho 'EA11 VM' ou execute: a11yctl vm start"
+        Write-EA11Info "Proximo passo: use o atalho 'A11Y VM' ou execute: a11yctl vm start"
         return
     }
 
@@ -2563,6 +2885,14 @@ function Invoke-QemuVMStart {
     $diskDiscard = [string]$runtimeCfg['QEMU_DISK_DISCARD']
     $videoDevice = [string]$runtimeCfg['QEMU_VIDEO_DEVICE']
     $fullscreenMode = [string]$runtimeCfg['QEMU_FULLSCREEN']
+
+    $defaultCfg = Get-DefaultQemuRuntimeConfig
+    $accelMode = Normalize-QemuStartupConfigValue -FriendlyKey 'accel' -Value $accelMode -Fallback ([string]$defaultCfg['QEMU_ACCEL'])
+    $diskInterface = Normalize-QemuStartupConfigValue -FriendlyKey 'disk-if' -Value $diskInterface -Fallback ([string]$defaultCfg['QEMU_DISK_IF'])
+    $diskCache = Normalize-QemuStartupConfigValue -FriendlyKey 'disk-cache' -Value $diskCache -Fallback ([string]$defaultCfg['QEMU_DISK_CACHE'])
+    $diskDiscard = Normalize-QemuStartupConfigValue -FriendlyKey 'disk-discard' -Value $diskDiscard -Fallback ([string]$defaultCfg['QEMU_DISK_DISCARD'])
+    $videoDevice = Normalize-QemuStartupConfigValue -FriendlyKey 'video' -Value $videoDevice -Fallback ([string]$defaultCfg['QEMU_VIDEO_DEVICE'])
+    $fullscreenMode = Normalize-QemuStartupConfigValue -FriendlyKey 'fullscreen' -Value $fullscreenMode -Fallback ([string]$defaultCfg['QEMU_FULLSCREEN'])
     $disableHostHomeShare = Has-Flag -Tokens $Tokens -Flags @('--no-host-home-share')
     $smbServer = Get-OptionValue -Tokens $Tokens -Names @('--smb-server') -Default $null
     $smbShare = Get-OptionValue -Tokens $Tokens -Names @('--smb-share') -Default $null
@@ -2604,7 +2934,13 @@ function Invoke-QemuVMStart {
     if (-not $disableHostHomeShare) {
         $hostHomeShare = Get-QemuHostHomeShareConfig
         if ($hostHomeShare) {
-            if (Test-QemuVirtfsSupport -QemuExecutable $qemuExecutable) {
+            if (Test-IsWindowsHost) {
+                # Windows: nao usar virtfs/9p. O compartilhamento padrao e SMB via user networking.
+                # Isso evita falhas de start em builds do QEMU que encerram com
+                # "virtfs support is disabled" ou "There is no option group 'virtfs'".
+                $smbSupportInfo = Get-QemuUserNetSmbSupportInfo -QemuExecutable $qemuExecutable
+            }
+            elseif (Test-QemuVirtfsSupport -QemuExecutable $qemuExecutable) {
                 $hostHomeShareMode = '9p'
                 Write-EA11Info "Compartilhando host home via 9p: $($hostHomeShare.HostPath) -> $($hostHomeShare.GuestMountPoint)"
             }
@@ -2613,9 +2949,8 @@ function Invoke-QemuVMStart {
             }
 
             if (($hostHomeShareMode -ne '9p') -and $smbSupportInfo -and ($smbSupportInfo.Supported -or ($smbSupportInfo.Reason -ne 'unsupported'))) {
-                # Mantem o comportamento resiliente do a11yctl-old: quando 9p nao
-                # existe, tenta SMB usernet antes de desistir do compartilhamento.
-                # Se SMB quebrar em runtime, o bloco de retry abaixo ja reinicia sem share.
+                # Windows usa SMB como caminho principal; outros hosts usam SMB apenas quando 9p nao esta disponivel.
+                # Se SMB quebrar em runtime, o bloco de retry abaixo reinicia sem share automaticamente.
                 $hostHomeShareMode = 'smb'
                 $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22,smb=$($hostHomeShare.HostPath)"
                 $qemuSmbShare = @{
@@ -2624,7 +2959,10 @@ function Invoke-QemuVMStart {
                     GuestMountPoint = $hostHomeShare.GuestMountPoint
                 }
                 if ($smbSupportInfo.Reason -eq 'missing-host-smb-helper') {
-                    Write-EA11Warn 'virtfs/9p indisponivel. SMB usernet sera tentado, mas o helper SMB do host aparenta ausente, caso falhe, o start seguira sem share automaticamente.'
+                    Write-EA11Warn 'SMB usernet sera tentado, mas o helper SMB do host aparenta ausente; caso falhe, o start seguira sem share automaticamente.'
+                }
+                elseif (Test-IsWindowsHost) {
+                    Write-EA11Info "Windows detectado: usando compartilhamento SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
                 }
                 else {
                     Write-EA11Warn "virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
@@ -2635,13 +2973,18 @@ function Invoke-QemuVMStart {
                     Write-EA11Warn 'QEMU ate possui parametro SMB usernet, mas o helper SMB do host nao esta disponivel. VM iniciada sem compartilhamento automatico da home do host.'
                 }
                 else {
-                    Write-EA11Warn 'Este binario QEMU nao suporta virtfs/9p nem SMB usernet em runtime. VM iniciada sem compartilhamento automatico da home do host.'
+                    if (Test-IsWindowsHost) {
+                        Write-EA11Warn 'Este binario QEMU nao conseguiu usar SMB usernet em runtime. VM iniciada sem compartilhamento automatico da home do host.'
+                    }
+                    else {
+                        Write-EA11Warn 'Este binario QEMU nao suporta virtfs/9p nem SMB usernet em runtime. VM iniciada sem compartilhamento automatico da home do host.'
+                    }
                 }
                 $hostHomeShare = $null
             }
         }
         else {
-            Write-EA11Warn 'Nao foi possivel resolver pasta home do host para compartilhamento 9p automatico.'
+            Write-EA11Warn 'Nao foi possivel resolver pasta home do host para compartilhamento automatico.'
         }
     }
 
@@ -2671,10 +3014,10 @@ function Invoke-QemuVMStart {
     Write-QemuArgsLog -Path $argsLog -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs
     if ($debugMode) {
         # Salva comando e log detalhado
-        Set-Content -Path $debugCmdFile -Value ("$qemuExecutable " + ($qemuArgs -join ' '))
+        Set-Content -Path $debugCmdFile -Value (Format-QemuCommandLine -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs)
         $startParams = @{
             FilePath = $qemuExecutable
-            ArgumentList = $qemuArgs
+            ArgumentList = (ConvertTo-NativeQemuArgumentList -QemuArgs $qemuArgs)
             PassThru = $true
             RedirectStandardOutput = $debugLogFile
             # No Windows, Start-Process exige arquivos diferentes para stdout/stderr.
@@ -2683,7 +3026,7 @@ function Invoke-QemuVMStart {
     } else {
         $startParams = @{
             FilePath = $qemuExecutable
-            ArgumentList = $qemuArgs
+            ArgumentList = (ConvertTo-NativeQemuArgumentList -QemuArgs $qemuArgs)
             PassThru = $true
             RedirectStandardOutput = $stdoutLog
             RedirectStandardError = $stderrLog
@@ -2725,14 +3068,14 @@ function Invoke-QemuVMStart {
             }
 
             Write-QemuArgsLog -Path $argsLog -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs
-            $startParams.ArgumentList = $qemuArgs
+            $startParams.ArgumentList = (ConvertTo-NativeQemuArgumentList -QemuArgs $qemuArgs)
             $proc = Start-Process @startParams
             Start-Sleep -Seconds 2
             $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
         }
     }
 
-    if ((-not $alive) -and (Test-IsWindowsHost) -and ($accelMode -eq 'auto')) {
+    if ((-not $alive) -and (Test-IsWindowsHost) -and ($accelMode -in @('auto','whpx'))) {
         $lastError = ''
         if (Test-Path $stderrLog) {
             $lastError = (Get-Content -Path $stderrLog -Tail 80 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
@@ -2752,11 +3095,11 @@ function Invoke-QemuVMStart {
             else {
                 $qemuArgs += Get-QemuDesktopDisplayArgs -FullscreenMode $fullscreenMode
 
-                $qemuArgs += Get-QemuAudioArgs
+                $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
             }
 
             Write-QemuArgsLog -Path $argsLog -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs
-            $startParams.ArgumentList = $qemuArgs
+            $startParams.ArgumentList = (ConvertTo-NativeQemuArgumentList -QemuArgs $qemuArgs)
             $proc = Start-Process @startParams
             Start-Sleep -Seconds 2
             $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
@@ -2790,7 +3133,7 @@ function Invoke-QemuVMStart {
             }
 
             Write-QemuArgsLog -Path $argsLog -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs
-            $startParams.ArgumentList = $qemuArgs
+            $startParams.ArgumentList = (ConvertTo-NativeQemuArgumentList -QemuArgs $qemuArgs)
             $proc = Start-Process @startParams
             Start-Sleep -Seconds 2
             $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
@@ -3333,7 +3676,7 @@ function Close-VMWindowProcess {
     foreach ($proc in $candidates) {
         Write-EA11Info "Solicitando fechamento da janela da VM '$VMName' (PID $($proc.ProcessId))"
 
-        # Fechamento gracioso: evita corromper estado interno do VirtualBox.
+        # Fechamento gracioso: evita corromper estado interno do Qemu.
         Stop-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue
     }
 }
@@ -3500,8 +3843,8 @@ A instalacao nativa (host install) e suportada apenas em:
   - Linux com Debian 11+/Ubuntu 20.04+
   - macOS (com bash shell nativo)
 
-Se desejar testar host install no Windows, considere usar WSL2:
-  1. Instale Windows Subsystem for Linux (WSL2)
+Se desejar testar host install no Windows, considere usar WSL:
+  1. Instale Windows Subsystem for Linux (WSL)
   2. Instale Debian ou Ubuntu dentro do WSL
   3. Execute: a11yctl host install
 
